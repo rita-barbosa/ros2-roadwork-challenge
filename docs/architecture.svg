@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="380" viewBox="0 0 1100 380">
+<rect width="1100" height="380" fill="#f5f7fb"/><style>text{font-family:Arial,sans-serif;fill:#172b4d} .title{font-size:24px;font-weight:bold}.label{font-size:17px}.small{font-size:14px}</style>
+<defs><marker id="a" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#526988"/></marker></defs>
+<text x="35" y="42" class="title">IASYS Roadwork · sense → plan → act</text>
+<g fill="#e3edfc" stroke="#6685b5" stroke-width="2"><rect x="30" y="120" width="200" height="90" rx="12"/><rect x="315" y="120" width="180" height="90" rx="12"/><rect x="585" y="120" width="180" height="90" rx="12"/><rect x="855" y="120" width="210" height="90" rx="12"/></g>
+<g text-anchor="middle" class="label"><text x="130" y="155">Simulator</text><text x="130" y="181">+ evaluator</text><text x="405" y="155">SENSE</text><text x="405" y="181">validate / interpret</text><text x="675" y="155">PLAN</text><text x="675" y="181">decide / plan</text><text x="960" y="155">ACT</text><text x="960" y="181">guard / command</text></g>
+<g fill="none" stroke="#526988" stroke-width="2" marker-end="url(#a)"><path d="M230 165 H310"/><path d="M495 165 H580"/><path d="M765 165 H850"/><path d="M960 210 V285 H130 V215"/></g>
+<g class="small" text-anchor="middle"><text x="272" y="108">Sensors</text><text x="540" y="108">Scene</text><text x="810" y="108">Plan</text><text x="550" y="277">/vehicle/command · one publisher</text><text x="550" y="329">All stages use /clock, preserve source timestamps and check temporal validity.</text><text x="550" y="353">RViz and evaluator outputs are for observation only.</text></g></svg>
