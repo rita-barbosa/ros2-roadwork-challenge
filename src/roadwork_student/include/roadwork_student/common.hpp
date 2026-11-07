@@ -56,10 +56,15 @@ struct Point2 {
   double x = 0.0, y = 0.0;
 };
 
-// S1 scope: the panel is either confirmed GO or not (UNKNOWN).
-enum class Panel : uint8_t { Unknown = 0, Go = 1 };
+enum class Panel : uint8_t { Unknown = 0, Go = 1, Stop = 2 };
 
-inline const char* to_string(Panel p) { return p == Panel::Go ? "GO" : "UNKNOWN"; }
+inline const char* to_string(Panel p) {
+  switch (p) {
+    case Panel::Go: return "GO";
+    case Panel::Stop: return "STOP";
+    default: return "UNKNOWN";
+  }
+}
 
 // Work-zone geometry as published by the beacon (map frame, metres).
 struct Geometry {

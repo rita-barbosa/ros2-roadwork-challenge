@@ -56,6 +56,10 @@ static void test_decisions() {
   }
   {  // GO not yet confirmed: hold in WAIT_GO; once GO is confirmed it is latched.
     Planner pl;
+    const PlanOutput stop = pl.step(scene(0.1, 5, 0, Panel::Stop), 0.1);
+    CHECK(stop.state == State::WaitGo);
+    CHECK(stop.speed == 0.0 && stop.hold);
+    CHECK(!pl.go_latched());
     const PlanOutput w = pl.step(scene(0.2, 5, 0, Panel::Unknown), 0.2);
     CHECK(w.state == State::WaitGo);
     CHECK(w.speed == 0.0 && w.hold);

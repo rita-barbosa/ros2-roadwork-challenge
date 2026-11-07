@@ -1,5 +1,5 @@
-// Perception building blocks used by sense_node (ROS-free). S1 scope: the panel
-// GO detector and the beacon geometry cache.
+// Perception building blocks used by sense_node (ROS-free): panel state and
+// beacon geometry cache.
 #pragma once
 #include <string>
 #include <vector>
@@ -12,21 +12,20 @@ namespace rws {
 // Panel classification (single frame)
 // ---------------------------------------------------------------------------
 // The panel crop is a 96x64 rgb8 image with a centred disc (radius ~18 px);
-// green = GO; per-pixel intensity noise +/-18. We count "strongly green" pixels
-// inside an inner disc (radius 0.22*min(w,h), safely inside the panel disc) and
-// check that an outer ring (background) is not coloured, which rejects frames
-// that are not a centred panel. Anything that is not clearly GO is UNKNOWN.
+// Green means GO and red means STOP. Count strongly coloured pixels inside an
+// inner disc and verify the outer background ring is not coloured. Ambiguous
+// frames are UNKNOWN.
 struct PanelResult {
   Panel cls = Panel::Unknown;
   bool valid = false;  // image well-formed
-  double green_fraction = 0.0, ring_colored_fraction = 0.0;
+  double green_fraction = 0.0, red_fraction = 0.0, ring_colored_fraction = 0.0;
   int inner_pixels = 0;
   std::string reason;
 };
 
 struct PanelClassifierConfig {
-  int min_channel = 110;     // green channel must exceed this (nominal 200)
-  int min_contrast = 70;     // green - other channels (nominal 175)
+  int min_channel = 110;     // dominant colour channel must exceed this (nominal 200)
+  int min_contrast = 70;     // dominant channel - other channels (nominal 175)
   double go_fraction = 0.80;
   double max_ring_colored = 0.10;
 };
@@ -45,7 +44,7 @@ inline PanelResult classify_panel(const std::vector<uint8_t>& data, int width, i
   const double cx = width / 2.0, cy = height / 2.0;
   const double m = std::min(width, height);
   const double r_in = 0.22 * m, r_ring_lo = 0.36 * m, r_ring_hi = 0.46 * m;
-  int green = 0, inner = 0, ring = 0, ring_col = 0;
+  int green = 0, red = 0, inner = 0, ring = 0, ring_col = 0;
   for (int y = 0; y < height; ++y) {
     for (int x = 0; x < width; ++x) {
       const double d = std::hypot(x - cx, y - cy);
@@ -54,24 +53,27 @@ inline PanelResult classify_panel(const std::vector<uint8_t>& data, int width, i
       const size_t i = static_cast<size_t>(y) * step + static_cast<size_t>(x) * 3;
       const int R = data[i], G = data[i + 1], B = data[i + 2];
       const bool is_green = G >= c.min_channel && G - R >= c.min_contrast && G - B >= c.min_contrast;
-      if (in_inner) { ++inner; green += is_green; }
-      else { ++ring; ring_col += is_green; }
+      const bool is_red = R >= c.min_channel && R - G >= c.min_contrast && R - B >= c.min_contrast;
+      if (in_inner) { ++inner; green += is_green; red += is_red; }
+      else { ++ring; ring_col += is_green || is_red; }
     }
   }
   r.inner_pixels = inner;
   r.green_fraction = inner ? double(green) / inner : 0.0;
+  r.red_fraction = inner ? double(red) / inner : 0.0;
   r.ring_colored_fraction = ring ? double(ring_col) / ring : 0.0;
   if (r.ring_colored_fraction > c.max_ring_colored) { r.reason = "background coloured"; return r; }
   if (r.green_fraction >= c.go_fraction) { r.cls = Panel::Go; r.reason = "green disc"; }
-  else r.reason = "not a green disc";
+  else if (r.red_fraction >= c.go_fraction) { r.cls = Panel::Stop; r.reason = "red disc"; }
+  else r.reason = "ambiguous or blank panel";
   return r;
 }
 
 // ---------------------------------------------------------------------------
 // Temporal GO confirmation
 // ---------------------------------------------------------------------------
-// GO is confirmed only after `go_confirm` consecutive GO frames whose stamps are
-// at most `max_gap` apart (camera is 10 Hz). Otherwise the state is UNKNOWN.
+// STOP is reported immediately; GO requires `go_confirm` consecutive frames
+// whose stamps are at most `max_gap` apart (camera is 10 Hz).
 class PanelFilter {
  public:
   explicit PanelFilter(int go_confirm = 3, double max_gap = 0.15) : go_confirm_(go_confirm), max_gap_(max_gap) {}
@@ -92,7 +94,10 @@ class PanelFilter {
     return true;
   }
 
-  Panel state() const { return go_count_ >= go_confirm_ ? Panel::Go : Panel::Unknown; }
+  Panel state() const {
+    if (last_raw_ == Panel::Stop) return Panel::Stop;
+    return go_count_ >= go_confirm_ ? Panel::Go : Panel::Unknown;
+  }
   Panel last_raw() const { return last_raw_; }
   double last_stamp() const { return last_stamp_; }
   int go_count() const { return go_count_; }

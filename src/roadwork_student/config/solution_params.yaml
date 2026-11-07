@@ -4,6 +4,7 @@ sense:
   ros__parameters:
     use_sim_time: true
     odom_timeout: 0.20          # s
+    camera_timeout: 0.30        # s; stale frames cannot authorize entry
     go_confirm_frames: 3        # consecutive GO frames (10 Hz) before GO is confirmed
 plan:
   ros__parameters:

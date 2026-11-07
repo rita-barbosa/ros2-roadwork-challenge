@@ -6,6 +6,7 @@
 
 uint8 PANEL_UNKNOWN=0
 uint8 PANEL_GO=1
+uint8 PANEL_STOP=2
 
 std_msgs/Header header
 
@@ -19,7 +20,7 @@ float64 ego_speed
 
 # ---- Panel camera (/camera/image_raw) ----
 uint8 panel_raw                  # class of the newest accepted frame
-uint8 panel_state                # GO only after N consecutive GO frames, else UNKNOWN
+uint8 panel_state                # STOP immediately; GO after N consecutive frames; stale/ambiguous is UNKNOWN
 builtin_interfaces/Time camera_stamp
 float32 panel_green_fraction     # fraction of inner-disc pixels classified green
 uint32 panel_go_count            # consecutive GO frames (10 Hz)

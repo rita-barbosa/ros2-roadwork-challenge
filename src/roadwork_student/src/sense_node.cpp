@@ -26,6 +26,7 @@ class SenseNode : public rclcpp::Node {
     rws_ros::ensure_sim_time(*this);
     rws::SenseConfig c;
     c.odom_timeout = declare_parameter("odom_timeout", c.odom_timeout);
+    c.camera_timeout = declare_parameter("camera_timeout", c.camera_timeout);
     c.go_confirm = declare_parameter("go_confirm_frames", c.go_confirm);
     core_ = std::make_unique<rws::SenseCore>(c);
 

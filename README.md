@@ -2,9 +2,10 @@
 
 Implement the complete sense–plan–act chain in C++17 using **at least three ROS2
 nodes**. This workspace supplies the simulator and embedded evaluator, external
-message contracts, RViz configuration, launch files and three empty node entry
-points. No sensor subscriptions, internal messages, control publisher or solution
-algorithms are supplied in the starter. There is no `ros_runner.hpp`.
+message contracts, RViz configuration, launch files and a three-node student
+solution. The current D1 implementation handles STOP/GO panel evidence and the
+static-work bypass for S1–S2. LiDAR, radar and S3–S5 recovery behavior remain
+outside the implemented D1 scope. There is no `ros_runner.hpp`.
 
 ## Build and launch (Ubuntu 24.04 / ROS2 Jazzy)
 
@@ -18,11 +19,12 @@ source install/setup.bash
 ros2 launch roadwork_sim challenge.launch.py scenario:=1
 ```
 
-The starter is intentionally inactive: the simulator watchdog holds the vehicle
-stationary because no command publisher exists. This is not a completed solution.
-The three empty processes are `sense_node`, `plan_node` and `act_node` in
-`roadwork_student`. Add subscriptions, internal ROS messages, algorithms,
-publishers, dependencies, tests and observable outputs yourself.
+The three solution processes are `sense_node`, `plan_node` and `act_node` in
+`roadwork_student`. Sense classifies the panel, requiring three consecutive GO
+frames and treating stale camera evidence as UNKNOWN. Plan holds while STOP,
+UNKNOWN or stale evidence is present, then plans the bypass after confirmed GO.
+Act validates and executes short-lived plans and is the only publisher of
+`/vehicle/command`.
 
 ```bash
 # Headless episode with a unique result file:
@@ -48,7 +50,7 @@ and [Jazzy acceptance](docs/ACCEPTANCE.md).
 The simulator is an educational 2D model with exact odometry and circular vehicle
 collision geometry, not evidence of real-world autonomous-vehicle safety.
 
-## Student solution (D1 in progress, S1 scope)
+## Student solution (D1 in progress, S1–S2 scope)
 
 | Package | Content |
 | --- | --- |
@@ -56,11 +58,10 @@ collision geometry, not evidence of real-world autonomous-vehicle safety.
 | `roadwork_student` | `sense_node`, `plan_node`, `act_node`; ROS-free algorithm headers in `include/roadwork_student/`; tests in `test/` |
 
 ```bash
-# Supplied launch (starts the three solution nodes with defaults):
+# Supplied launch:
 ros2 launch roadwork_sim challenge.launch.py scenario:=1
 # Solution launch (parameter file + RViz with /solution/path):
 ros2 launch roadwork_student solution.launch.py scenario:=1 seed:=1
-# S1 evidence: 3 seeds, fresh launch each, results + logs + bags:
-bash scripts/run_episodes.sh results/d1 "1" "1 2 3"
+# D1 evidence: S1 and S2, 3 seeds each, fresh launch each:
+bash scripts/run_episodes.sh results/d1 "1 2" "1 2 3"
 ```
-

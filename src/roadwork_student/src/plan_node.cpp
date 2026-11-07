@@ -26,8 +26,13 @@ static rws::SceneData from_msg(const SceneMsg& m) {
   s.ego.valid = m.ego_valid;
   s.ego.stamp = m.ego_valid ? to_sec(m.odom_stamp) : -1.0;
   s.ego.x = m.ego_x; s.ego.y = m.ego_y; s.ego.yaw = m.ego_yaw; s.ego.v = m.ego_speed;
-  s.panel_raw = m.panel_raw == SceneMsg::PANEL_GO ? rws::Panel::Go : rws::Panel::Unknown;
-  s.panel_state = m.panel_state == SceneMsg::PANEL_GO ? rws::Panel::Go : rws::Panel::Unknown;
+  auto panel = [](uint8_t value) {
+    if (value == SceneMsg::PANEL_GO) return rws::Panel::Go;
+    if (value == SceneMsg::PANEL_STOP) return rws::Panel::Stop;
+    return rws::Panel::Unknown;
+  };
+  s.panel_raw = panel(m.panel_raw);
+  s.panel_state = panel(m.panel_state);
   s.camera_stamp = to_sec(m.camera_stamp);
   s.green_fraction = m.panel_green_fraction;
   s.panel_go_count = static_cast<int>(m.panel_go_count);

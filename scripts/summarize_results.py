@@ -12,7 +12,7 @@ import pathlib
 import re
 import sys
 
-GO_EVENT = {}  # documented panel change times, analysis only (none for S1)
+GO_EVENT = {2: 10.0}  # documented GO event times, for analysis only (S2)
 
 RE_PANEL_GO = re.compile(r"panel \w+ -> GO at t=([0-9.]+)")
 RE_GO = re.compile(r"GO latched at t=([0-9.]+) x=([0-9.\-]+)")

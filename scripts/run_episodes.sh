@@ -5,12 +5,13 @@
 #   <out>/s<S>_seed<N>/bag/          rosbag of internal + command topics (RECORD=1)
 # Usage (from the workspace root, after `source install/setup.bash`):
 #   bash scripts/run_episodes.sh [OUT_DIR] ["SCENARIOS"] ["SEEDS"]
-#   bash scripts/run_episodes.sh results/d1 "1" "1 2 3"        # S1: 3 runs
+#   bash scripts/run_episodes.sh                              # D1: S1-S2, 3 seeds each
+#   bash scripts/run_episodes.sh results/d1 "2" "1 2 3"       # S2 only: 3 runs
 # Env: WALL_TIMEOUT (s, default 400), RECORD (1/0), EXTRA_ARGS (e.g. "work_shift:=-2.0 noise:=0.05")
 # Use an isolated ROS_DOMAIN_ID per group.
 set -u
 OUT=${1:-results/d1}
-SCENARIOS=${2:-"1"}
+SCENARIOS=${2:-"1 2"}
 SEEDS=${3:-"1 2 3"}
 WALL_TIMEOUT=${WALL_TIMEOUT:-400}
 RECORD=${RECORD:-1}

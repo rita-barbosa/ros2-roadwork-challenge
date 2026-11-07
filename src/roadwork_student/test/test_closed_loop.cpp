@@ -1,12 +1,12 @@
 // Offline closed-loop test: SenseCore -> Planner -> CommandGuard against the
 // supplied roadwork_core simulator, WITHOUT ROS. It emulates simulator_node's
 // publication pattern (a message is "received" when its stamp changes) and feeds
-// only the Observation fields the S1 pipeline uses (odometry, image, beacon) to the
+// only the Observation fields the S1-S2 pipeline uses (odometry, image, beacon) to the
 // algorithms - never objects(), scenario id, schedules or metrics.
 //
 // This is algorithm-level evidence only; it does not replace ROS acceptance
 // (DDS, QoS, executor timing). Usage:
-//   test_closed_loop                     run the S1 regression suite (seeds x geometry/noise/delay)
+//   test_closed_loop                     run the S1-S2 regression suite (seeds x geometry/noise/delay)
 //   test_closed_loop S SEED [SHIFT] [NOISE] [DELAY_TICKS] [trace.csv]
 #include <cstdio>
 #include <cstdlib>
@@ -24,6 +24,7 @@ struct RunResult {
   std::string last_state;
   int transitions = 0;
   double max_abs_cte = 0;
+  double first_motion_time = -1.0;
 };
 
 static RunResult run(int scenario, unsigned seed, double shift, double noise, int delay_ticks,
@@ -68,6 +69,7 @@ static RunResult run(int scenario, unsigned seed, double shift, double noise, in
     pin.have = true; pin.stamp = plan.stamp; pin.valid_until = plan.valid_until; pin.speed = plan.speed;
     pin.steering = plan.steering; pin.speed_limit = plan.speed_limit; pin.hold = plan.hold;
     const rws::GuardOutput cmd = guard.step(pin, now);
+    if (res.first_motion_time < 0 && cmd.speed > 0.01) res.first_motion_time = now;
 
     if (plan.state != prev) { ++res.transitions; prev = plan.state; }
     if (scene.ego.x > 20 && scene.ego.x < 75) res.max_abs_cte = std::max(res.max_abs_cte, std::abs(plan.cte));
@@ -93,10 +95,11 @@ static void print(int s, unsigned seed, double shift, double noise, int delay, c
   const auto& m = r.m;
   std::printf(
       "S%d seed=%u shift=%+.1f noise=%.3f delay=%d | pass=%d finished=%d coll=%d off=%d entry=%d lane=%d speed=%d "
-      "timeout=%d | t=%.2f min_clear=%.3f vmax=%.3f stopped=%.2f rejected=%d max|cte|=%.3f state=%s\n",
+      "timeout=%d | t=%.2f min_clear=%.3f vmax=%.3f stopped=%.2f rejected=%d max|cte|=%.3f "
+      "first_motion=%.2f state=%s\n",
       s, seed, shift, noise, delay, m.pass(), m.finished, m.collision, m.offroad, m.entry_violation, m.lane_violation,
       m.speed_violation, m.timeout, r.time, m.min_clearance, m.max_speed, m.stopped_seconds, m.rejected_commands,
-      r.max_abs_cte, r.last_state.c_str());
+      r.max_abs_cte, r.first_motion_time, r.last_state.c_str());
 }
 
 int main(int argc, char** argv) {
@@ -109,21 +112,21 @@ int main(int argc, char** argv) {
     const char* trace = argc > 6 ? argv[6] : nullptr;
     const RunResult r = run(s, seed, shift, noise, delay, trace);
     print(s, seed, shift, noise, delay, r);
-    return r.m.pass() ? 0 : 1;
+    return r.m.pass() && (s != 2 || r.first_motion_time >= 10.0) ? 0 : 1;
   }
-  // S1 regression suite: seeds 1..3, default and boundary geometry/noise,
+  // S1-S2 regression suite: seeds 1..3, default and boundary geometry/noise,
   // with 0 and 2 ticks (0.1 s) of extra command delay.
   int failures = 0, runs = 0;
-  for (int s : {1})
+  for (int s : {1, 2})
     for (unsigned seed : {1u, 2u, 3u})
       for (double shift : {0.0, -2.0, 2.0})
         for (double noise : {0.02, 0.0, 0.05})
           for (int delay : {0, 2}) {
             const RunResult r = run(s, seed, shift, noise, delay, nullptr);
             ++runs;
-            if (!r.m.pass()) ++failures;
+            if (!r.m.pass() || (s == 2 && r.first_motion_time < 10.0)) ++failures;
             if (!r.m.pass() || (shift == 0.0 && noise == 0.02 && delay == 0)) print(s, seed, shift, noise, delay, r);
           }
-  std::printf("closed-loop S1 suite: %d/%d runs passed\n", runs - failures, runs);
+  std::printf("closed-loop S1-S2 suite: %d/%d runs passed\n", runs - failures, runs);
   return failures == 0 ? 0 : 1;
 }

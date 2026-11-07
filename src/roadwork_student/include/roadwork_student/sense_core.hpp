@@ -11,6 +11,7 @@ namespace rws {
 
 struct SenseConfig {
   double odom_timeout = 0.20;  // s (odometry is 20 Hz)
+  double camera_timeout = 0.30;  // s (camera is 10 Hz)
   int go_confirm = 3;          // consecutive GO frames required
   PanelClassifierConfig panel;
 };
@@ -53,8 +54,8 @@ class SenseCore {
     s.ego.valid = ego_.valid && is_fresh(now, ego_.stamp, cfg_.odom_timeout);
 
     s.panel_raw = panel_filter_.last_raw();
-    s.panel_state = panel_filter_.state();
     s.camera_stamp = panel_filter_.last_stamp();
+    s.panel_state = is_fresh(now, s.camera_stamp, cfg_.camera_timeout) ? panel_filter_.state() : Panel::Unknown;
     s.green_fraction = panel_.green_fraction;
     s.panel_go_count = panel_filter_.go_count();
     s.camera_rejected = panel_filter_.rejected();
