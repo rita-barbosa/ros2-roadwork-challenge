@@ -47,3 +47,20 @@ and [Jazzy acceptance](docs/ACCEPTANCE.md).
 
 The simulator is an educational 2D model with exact odometry and circular vehicle
 collision geometry, not evidence of real-world autonomous-vehicle safety.
+
+## Student solution (D1 in progress, S1 scope)
+
+| Package | Content |
+| --- | --- |
+| `roadwork_student_interfaces` | Internal contracts: `Scene`, `Plan` |
+| `roadwork_student` | `sense_node`, `plan_node`, `act_node`; ROS-free algorithm headers in `include/roadwork_student/`; tests in `test/` |
+
+```bash
+# Supplied launch (starts the three solution nodes with defaults):
+ros2 launch roadwork_sim challenge.launch.py scenario:=1
+# Solution launch (parameter file + RViz with /solution/path):
+ros2 launch roadwork_student solution.launch.py scenario:=1 seed:=1
+# S1 evidence: 3 seeds, fresh launch each, results + logs + bags:
+bash scripts/run_episodes.sh results/d1 "1" "1 2 3"
+```
+

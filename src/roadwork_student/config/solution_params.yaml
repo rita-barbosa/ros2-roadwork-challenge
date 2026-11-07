@@ -1,0 +1,20 @@
+# Default parameters of the three solution nodes (same values as the C++ defaults).
+# Loaded by roadwork_student/launch/solution.launch.py. All nodes run on sim time.
+sense:
+  ros__parameters:
+    use_sim_time: true
+    odom_timeout: 0.20          # s
+    go_confirm_frames: 3        # consecutive GO frames (10 Hz) before GO is confirmed
+plan:
+  ros__parameters:
+    use_sim_time: true
+    bypass_y: 1.25              # m, lateral position while passing the works
+    cruise_speed: 3.5           # m/s
+    max_lateral_accel: 1.5      # m/s^2
+    scene_timeout: 0.25         # s
+    plan_validity: 0.25         # s, Plan.valid_until = stamp + this
+act:
+  ros__parameters:
+    use_sim_time: true
+    max_speed: 3.8              # m/s hard cap (violation threshold is 4.05)
+    max_plan_age: 0.30          # s
