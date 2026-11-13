@@ -28,7 +28,7 @@ Act validates and executes short-lived plans and is the only publisher of
 
 ```bash
 # Headless episode with a unique result file:
-ros2 launch roadwork_sim challenge.launch.py scenario:=5 seed:=42 rviz:=false visualize:=false result_path:=/tmp/team_s5_seed42.json
+ros2 launch roadwork_sim challenge.launch.py scenario:=2 seed:=42 rviz:=false visualize:=false result_path:=/tmp/team_s2_seed42.json
 # To launch your own packages separately, disable all three starter nodes:
 ros2 launch roadwork_sim challenge.launch.py student:=false
 ```
@@ -50,18 +50,31 @@ and [Jazzy acceptance](docs/ACCEPTANCE.md).
 The simulator is an educational 2D model with exact odometry and circular vehicle
 collision geometry, not evidence of real-world autonomous-vehicle safety.
 
-## Student solution (D1 in progress, S1–S2 scope)
+## Student solution (D1, S1–S2 scope)
 
 | Package | Content |
 | --- | --- |
-| `roadwork_student_interfaces` | Internal contracts: `Scene`, `Plan` |
-| `roadwork_student` | `sense_node`, `plan_node`, `act_node`; ROS-free algorithm headers in `include/roadwork_student/`; tests in `test/` |
+| `roadwork_student_interfaces` | Internal contracts: `Scene` (sense → plan), `Plan` (plan → act) |
+| `roadwork_student` | `sense_node`, `plan_node`, `act_node`; ROS-free algorithm headers in `include/roadwork_student/`; parameters in `config/`; `solution.launch.py`; RViz config; tests in `test/` |
+
+Design details: [architecture](docs/ARCHITECTURE.md#implemented-architecture-d1-s1s2);
+topics, messages and parameters: [interfaces](docs/INTERFACES.md#topics-used-by-the-student-solution).
+
+### Status
+
+| Scenario | Behaviour | Evidence |
+| --- | --- | --- |
+| S1 nominal | Bypass on the left, return to own lane, stop at goal | 3/3 seeds PASS in `results/d1/summary.md` |
+| S2 STOP → GO | Holds at start while STOP/UNKNOWN/stale; starts after 3 consecutive GO frames | Closed-loop unit tests; ROS episode runs still to be recorded |
+| S3–S5 | Not implemented (no LiDAR/radar processing, no stale-beacon or obstacle handling) | — |
+
+### Run
 
 ```bash
-# Supplied launch:
-ros2 launch roadwork_sim challenge.launch.py scenario:=1
-# Solution launch (parameter file + RViz with /solution/path):
-ros2 launch roadwork_student solution.launch.py scenario:=1 seed:=1
-# D1 evidence: S1 and S2, 3 seeds each, fresh launch each:
+# Solution launch (simulator + three nodes with the parameter file + RViz with /solution/path):
+ros2 launch roadwork_student solution.launch.py scenario:=2 seed:=1
+# Unit and closed-loop tests (ROS-free, S1–S2, 108 closed-loop runs):
+colcon test --packages-select roadwork_student && colcon test-result --verbose
+# D1 evidence: S1 and S2, 3 seeds each, fresh launch each (results, logs, bags, summary.md):
 bash scripts/run_episodes.sh results/d1 "1 2" "1 2 3"
 ```

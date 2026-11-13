@@ -1,0 +1,35 @@
+[INFO] [launch]: All log files can be found below /home/rita/.ros/log/2026-11-12-20-08-13-862085-rita-vb-3982
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [simulator_node-1]: process started with pid [3989]
+[INFO] [sense_node-2]: process started with pid [3990]
+[INFO] [plan_node-3]: process started with pid [3991]
+[INFO] [act_node-4]: process started with pid [3992]
+[act_node-4] [INFO] [1794514094.441221539] [act]: act_node ready: speed cap 3.80 m/s, steering +/-0.45 rad, slew 0.60 rad/s
+[sense_node-2] [INFO] [1794514095.097641898] [sense]: sense_node ready: GO needs 3 consecutive frames
+[plan_node-3] [INFO] [1794514095.113572536] [plan]: plan_node ready: bypass_y=1.25 cruise=3.50 m/s
+[act_node-4] [INFO] [1794514095.236432247] [act]: plan valid at t=0.05: plan requests hold
+[plan_node-3] [INFO] [1794514095.238258708] [plan]: state INIT -> SAFE_STOP at t=0.05 x=0.00: no scene received yet
+[plan_node-3] [INFO] [1794514095.240983127] [plan]: state SAFE_STOP -> INIT at t=0.05 x=5.00: waiting for beacon geometry
+[sense_node-2] [INFO] [1794514095.283150360] [sense]: panel UNKNOWN -> STOP at t=0.10 (green=0.00 go_count=0)
+[sense_node-2] [INFO] [1794514095.681607208] [sense]: beacon geometry cached: entry=25.00 work=[42.00, 49.00] exit=68.00 limit=4.00
+[plan_node-3] [INFO] [1794514095.685619911] [plan]: state INIT -> WAIT_GO at t=0.50 x=5.00: waiting for confirmed GO
+[plan_node-3] [INFO] [1794514095.685943519] [plan]: reference path v1: lane change x=[24.50, 40.00], return x=[52.00, 65.50], max steer 0.215 rad
+[sense_node-2] [INFO] [1794514105.279987573] [sense]: panel STOP -> UNKNOWN at t=10.00 (green=1.00 go_count=1)
+[sense_node-2] [INFO] [1794514105.481598477] [sense]: panel UNKNOWN -> GO at t=10.20 (green=1.00 go_count=3)
+[plan_node-3] [INFO] [1794514105.487158734] [plan]: state WAIT_GO -> APPROACH at t=10.20 x=5.00: GO confirmed; approaching work zone
+[plan_node-3] [INFO] [1794514105.487274181] [plan]: GO latched at t=10.20 x=5.00
+[plan_node-3] [INFO] [1794514112.083654190] [plan]: state APPROACH -> BYPASS at t=16.80 x=24.10: passing the works on the left
+[plan_node-3] [INFO] [1794514120.231532396] [plan]: state BYPASS -> RETURN at t=24.95 x=52.03: returning to own lane
+[plan_node-3] [INFO] [1794514125.032479830] [plan]: state RETURN -> FINAL at t=29.75 x=68.01: own lane, approaching goal
+[simulator_node-1] [INFO] [1794514129.981846900] [roadwork_simulator]: Result saved to /home/rita/ros2-roadwork-challenge-main/results/d1/s2_seed2/result.json: {"scenario":2,"seed":2,"work_shift":0,"traffic_speed":3,"noise":0.02,"time":34.7,"terminal":true,"pass":true,"finished":true,"collision":false,"offroad":false,"entry_violation":false,"lane_violation":false,"speed_violation":false,"timeout":false,"min_clearance":1.16689,"stopped_seconds":10.25,"max_speed":3.5,"rejected_commands":1}
+[plan_node-3] [INFO] [1794514129.984624552] [plan]: state FINAL -> GOAL at t=34.70 x=80.15: goal reached
+[sense_node-2] [WARN] [1794514130.029020422] [sense]: rejected image: repeated/out-of-order frame
+[sense_node-2] [WARN] [1794514130.030002840] [sense]: rejected odometry: repeated/out-of-order odometry
+[plan_node-3] [INFO] [1794514131.521595398] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[simulator_node-1] [INFO] [1794514131.522514500] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[act_node-4] [INFO] [1794514131.533152613] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[sense_node-2] [INFO] [1794514131.536551847] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[INFO] [sense_node-2]: process has finished cleanly [pid 3990]
+[INFO] [plan_node-3]: process has finished cleanly [pid 3991]
+[INFO] [act_node-4]: process has finished cleanly [pid 3992]
+[INFO] [simulator_node-1]: process has finished cleanly [pid 3989]
