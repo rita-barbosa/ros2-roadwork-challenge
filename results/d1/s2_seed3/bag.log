@@ -1,0 +1,17 @@
+[WARN] [ros2bag]: Positional "topics" argument deprecated. Please use optional "--topics" argument instead.
+stdin is not a terminal device. Keyboard handling disabled.[INFO] [1794674296.295264816] [rosbag2_recorder]: Press SPACE for pausing/resuming
+[INFO] [1794674296.295272355] [rosbag2_recorder]: Event publisher thread: Started
+[INFO] [1794674296.298408424] [rosbag2_recorder]: Starting recording to 'results/d1/s2_seed3/bag'
+[INFO] [1794674296.299391968] [rosbag2_recorder]: Listening for topics...
+[INFO] [1794674296.299487590] [rosbag2_recorder]: Recording...
+[INFO] [1794674296.299474339] [rosbag2_recorder]: Topics discovery started.
+[INFO] [1794674298.324610946] [rosbag2_recorder]: Subscribed to topic '/solution/scene'
+[INFO] [1794674298.329968006] [rosbag2_recorder]: Subscribed to topic '/vehicle/odometry'
+[INFO] [1794674298.333350684] [rosbag2_recorder]: Subscribed to topic '/challenge/metrics'
+[INFO] [1794674298.335591537] [rosbag2_recorder]: Subscribed to topic '/infra/roadwork/beacon'
+[INFO] [1794674298.750533741] [rosbag2_recorder]: Subscribed to topic '/vehicle/command'
+[INFO] [1794674299.901846058] [rosbag2_recorder]: Subscribed to topic '/solution/path'
+[INFO] [1794674299.902476911] [rosbag2_recorder]: Subscribed to topic '/solution/plan'
+[INFO] [1794674299.902978935] [rosbag2_recorder]: Subscribed to topic '/solution/state'
+[INFO] [1794674299.903116505] [rosbag2_recorder]: All requested topics are subscribed. Stopping discovery...
+[INFO] [1794674299.903182246] [rosbag2_recorder]: Topics discovery stopped.

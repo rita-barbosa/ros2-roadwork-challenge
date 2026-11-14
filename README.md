@@ -21,8 +21,11 @@ ros2 launch roadwork_sim challenge.launch.py scenario:=1
 
 The three solution processes are `sense_node`, `plan_node` and `act_node` in
 `roadwork_student`. Sense classifies the panel, requiring three consecutive GO
-frames and treating stale camera evidence as UNKNOWN. Plan holds while STOP,
-UNKNOWN or stale evidence is present, then plans the bypass after confirmed GO.
+frames and treating stale camera evidence as UNKNOWN. Without a confirmed GO
+(STOP, UNKNOWN or stale evidence), Plan drives in its own lane and stops with the
+vehicle front `stop_distance` (default 1.0 m) before the entry line. GO is
+re-checked every cycle and latched only at the point where the vehicle could no
+longer stop before the line; after that Plan follows the bypass.
 Act validates and executes short-lived plans and is the only publisher of
 `/vehicle/command`.
 

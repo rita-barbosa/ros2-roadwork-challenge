@@ -1,0 +1,33 @@
+[INFO] [launch]: All log files can be found below /home/alf/.ros/log/2026-11-14-16-37-42-131032-alf-Ubuntu-24-04-PC-Q35-ICH9-2009-9859
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [simulator_node-1]: process started with pid [9864]
+[INFO] [sense_node-2]: process started with pid [9865]
+[INFO] [plan_node-3]: process started with pid [9866]
+[INFO] [act_node-4]: process started with pid [9867]
+[sense_node-2] [INFO] [1794674262.213491505] [sense]: sense_node ready: GO needs 3 consecutive frames
+[act_node-4] [INFO] [1794674262.215491009] [act]: act_node ready: speed cap 3.80 m/s, steering +/-0.45 rad, slew 0.60 rad/s
+[plan_node-3] [INFO] [1794674262.220639378] [plan]: plan_node ready: bypass_y=1.25 cruise=3.50 m/s stop_distance=1.00 m
+[plan_node-3] [INFO] [1794674263.127709694] [plan]: state INIT -> SAFE_STOP at t=0.00 x=0.00: odometry missing or stale
+[sense_node-2] [INFO] [1794674263.127722854] [sense]: panel UNKNOWN -> STOP at t=0.90 (green=0.00 go_count=0)
+[sense_node-2] [INFO] [1794674263.227473074] [sense]: beacon geometry cached: entry=25.00 work=[42.00, 49.00] exit=68.00 limit=4.00
+[act_node-4] [INFO] [1794674263.327772828] [act]: plan valid at t=1.10: plan requests hold
+[plan_node-3] [INFO] [1794674263.328274751] [plan]: state SAFE_STOP -> WAIT_GO at t=1.10 x=5.00: no confirmed GO (panel STOP): approaching stop line
+[plan_node-3] [INFO] [1794674263.328395762] [plan]: reference path v1: lane change x=[24.50, 40.00], return x=[52.00, 65.50], max steer 0.215 rad
+[sense_node-2] [INFO] [1794674272.227656140] [sense]: panel STOP -> UNKNOWN at t=9.95 (green=1.00 go_count=1)
+[sense_node-2] [INFO] [1794674272.427519949] [sense]: panel UNKNOWN -> GO at t=10.15 (green=1.00 go_count=3)
+[plan_node-3] [INFO] [1794674272.427908751] [plan]: state WAIT_GO -> APPROACH at t=10.20 x=23.12: GO confirmed; approaching work zone
+[plan_node-3] [INFO] [1794674273.277355603] [plan]: GO latched at t=11.05 x=23.69
+[plan_node-3] [INFO] [1794674273.577320068] [plan]: state APPROACH -> BYPASS at t=11.35 x=24.15: passing the works on the left
+[plan_node-3] [INFO] [1794674282.027639884] [plan]: state BYPASS -> RETURN at t=19.80 x=52.09: returning to own lane
+[plan_node-3] [INFO] [1794674286.827730142] [plan]: state RETURN -> FINAL at t=24.60 x=68.10: own lane, approaching goal
+[simulator_node-1] [INFO] [1794674291.777240405] [roadwork_simulator]: Result saved to /home/alf/ros2-roadwork-challenge/results/d1/s2_seed2/result.json: {"scenario":2,"seed":2,"work_shift":0,"traffic_speed":3,"noise":0.02,"time":29.55,"terminal":true,"pass":true,"finished":true,"collision":false,"offroad":false,"entry_violation":false,"lane_violation":false,"speed_violation":false,"timeout":false,"min_clearance":1.16798,"stopped_seconds":2.05,"max_speed":3.5,"rejected_commands":22}
+[plan_node-3] [INFO] [1794674291.777335875] [plan]: state FINAL -> GOAL at t=29.55 x=80.16: goal reached
+[sense_node-2] [WARN] [1794674291.827219061] [sense]: rejected odometry: repeated/out-of-order odometry
+[plan_node-3] [INFO] [1794674293.014519306] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[act_node-4] [INFO] [1794674293.014533925] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[sense_node-2] [INFO] [1794674293.014529996] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[simulator_node-1] [INFO] [1794674293.016246466] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[INFO] [sense_node-2]: process has finished cleanly [pid 9865]
+[INFO] [plan_node-3]: process has finished cleanly [pid 9866]
+[INFO] [simulator_node-1]: process has finished cleanly [pid 9864]
+[INFO] [act_node-4]: process has finished cleanly [pid 9867]

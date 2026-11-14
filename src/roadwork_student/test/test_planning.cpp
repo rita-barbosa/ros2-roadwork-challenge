@@ -54,22 +54,43 @@ static void test_decisions() {
     CHECK(o.state == State::Init);
     CHECK(o.speed == 0.0 && o.hold);
   }
-  {  // GO not yet confirmed: hold in WAIT_GO; once GO is confirmed it is latched.
+  {  // No confirmed GO: approach in WAIT_GO and hold at the stop point before the line.
     Planner pl;
-    const PlanOutput stop = pl.step(scene(0.1, 5, 0, Panel::Stop), 0.1);
-    CHECK(stop.state == State::WaitGo);
-    CHECK(stop.speed == 0.0 && stop.hold);
+    const double stop_x = 25 - kEgoRadius - pl.config().stop_distance;  // reference x at the stop point
+    const PlanOutput far = pl.step(scene(0.1, 5, 0, Panel::Stop), 0.1);
+    CHECK(far.state == State::WaitGo);
+    CHECK(far.speed > 0.0 && !far.hold);  // far from the line: drive towards it
     CHECK(!pl.go_latched());
-    const PlanOutput w = pl.step(scene(0.2, 5, 0, Panel::Unknown), 0.2);
-    CHECK(w.state == State::WaitGo);
-    CHECK(w.speed == 0.0 && w.hold);
+    const PlanOutput near = pl.step(scene(0.2, stop_x - 2.0, 3.0, Panel::Unknown), 0.2);
+    CHECK(near.state == State::WaitGo);
+    CHECK(near.speed > 0.0 && near.speed < 3.0);  // braking towards the stop point
+    const PlanOutput at = pl.step(scene(0.3, stop_x, 0, Panel::Stop), 0.3);
+    CHECK(at.state == State::WaitGo);
+    CHECK(at.speed == 0.0 && at.hold);
+    CHECK_NEAR(at.d_line, pl.config().stop_distance, 1e-9);
+    CHECK(pl.step(scene(0.4, stop_x + 0.05, 0, Panel::Stop), 0.4).speed == 0.0);  // slight overshoot: hold
     CHECK(!pl.go_latched());
-    const PlanOutput go = pl.step(scene(0.4, 5, 0, Panel::Go), 0.4);
-    CHECK(pl.go_latched());
+    // GO at the stop line: drive on; GO is latched once stopping before the line is impossible.
+    const PlanOutput go = pl.step(scene(0.5, stop_x, 0, Panel::Go), 0.5);
     CHECK(go.state == State::Approach);
     CHECK(go.speed > 0.0 && !go.hold);
-    const PlanOutput later = pl.step(scene(0.5, 6, 1.0, Panel::Unknown), 0.5);  // latched
-    CHECK(later.speed > 0.0);
+    CHECK(!pl.go_latched());  // at rest it could still stop before the line
+    pl.step(scene(0.6, stop_x + 0.5, 2.0, Panel::Go), 0.6);
+    CHECK(pl.go_latched());
+    const PlanOutput later = pl.step(scene(0.7, stop_x + 0.7, 2.0, Panel::Unknown), 0.7);  // latched
+    CHECK(later.speed > 0.0 && later.state == State::Approach);
+  }
+  {  // GO far from the line is not yet a commitment: losing it brings the vehicle back to WAIT_GO.
+    Planner pl;
+    CHECK(pl.step(scene(1, 5, 0, Panel::Go), 1).state == State::Approach);
+    CHECK(!pl.go_latched());
+    const PlanOutput lost = pl.step(scene(2, 12, 3.4, Panel::Stop), 2);
+    CHECK(lost.state == State::WaitGo);
+    CHECK(lost.speed > 0.0);  // still far enough to stop comfortably: no early braking
+    const PlanOutput brake = pl.step(scene(3, 20, 3.4, Panel::Stop), 3);
+    CHECK(brake.state == State::WaitGo);
+    CHECK(brake.speed < 3.0);
+    CHECK(!pl.go_latched());
   }
   {  // States follow the position along the route.
     Planner pl;

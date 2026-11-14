@@ -25,7 +25,18 @@ struct RunResult {
   int transitions = 0;
   double max_abs_cte = 0;
   double first_motion_time = -1.0;
+  // Largest front position (x + radius) while stopped without permission (WAIT_GO); -1 if never.
+  double wait_stop_front = -1.0;
 };
+
+// S2 also requires the vehicle to have waited at the stop line, i.e. at rest in
+// WAIT_GO with its front between the configured stop point (minus a tolerance)
+// and the entry line. The entry line itself is checked by entry_violation.
+static bool stopped_at_line(const RunResult& r) {
+  const double stop_front = 25.0 - rws::PlannerConfig{}.stop_distance;
+  return r.wait_stop_front >= stop_front - 0.3 && r.wait_stop_front < 25.0;
+}
+static bool ok(int s, const RunResult& r) { return r.m.pass() && (s != 2 || stopped_at_line(r)); }
 
 static RunResult run(int scenario, unsigned seed, double shift, double noise, int delay_ticks,
                      const char* trace_path) {
@@ -70,6 +81,8 @@ static RunResult run(int scenario, unsigned seed, double shift, double noise, in
     pin.steering = plan.steering; pin.speed_limit = plan.speed_limit; pin.hold = plan.hold;
     const rws::GuardOutput cmd = guard.step(pin, now);
     if (res.first_motion_time < 0 && cmd.speed > 0.01) res.first_motion_time = now;
+    if (plan.state == rws::State::WaitGo && o.ego.v < 0.1 && o.ego.x > 6.0)
+      res.wait_stop_front = std::max(res.wait_stop_front, o.ego.x + rws::kEgoRadius);
 
     if (plan.state != prev) { ++res.transitions; prev = plan.state; }
     if (scene.ego.x > 20 && scene.ego.x < 75) res.max_abs_cte = std::max(res.max_abs_cte, std::abs(plan.cte));
@@ -96,10 +109,10 @@ static void print(int s, unsigned seed, double shift, double noise, int delay, c
   std::printf(
       "S%d seed=%u shift=%+.1f noise=%.3f delay=%d | pass=%d finished=%d coll=%d off=%d entry=%d lane=%d speed=%d "
       "timeout=%d | t=%.2f min_clear=%.3f vmax=%.3f stopped=%.2f rejected=%d max|cte|=%.3f "
-      "first_motion=%.2f state=%s\n",
+      "first_motion=%.2f wait_stop_front=%.3f state=%s\n",
       s, seed, shift, noise, delay, m.pass(), m.finished, m.collision, m.offroad, m.entry_violation, m.lane_violation,
       m.speed_violation, m.timeout, r.time, m.min_clearance, m.max_speed, m.stopped_seconds, m.rejected_commands,
-      r.max_abs_cte, r.first_motion_time, r.last_state.c_str());
+      r.max_abs_cte, r.first_motion_time, r.wait_stop_front, r.last_state.c_str());
 }
 
 int main(int argc, char** argv) {
@@ -112,7 +125,7 @@ int main(int argc, char** argv) {
     const char* trace = argc > 6 ? argv[6] : nullptr;
     const RunResult r = run(s, seed, shift, noise, delay, trace);
     print(s, seed, shift, noise, delay, r);
-    return r.m.pass() && (s != 2 || r.first_motion_time >= 10.0) ? 0 : 1;
+    return ok(s, r) ? 0 : 1;
   }
   // S1-S2 regression suite: seeds 1..3, default and boundary geometry/noise,
   // with 0 and 2 ticks (0.1 s) of extra command delay.
@@ -124,8 +137,8 @@ int main(int argc, char** argv) {
           for (int delay : {0, 2}) {
             const RunResult r = run(s, seed, shift, noise, delay, nullptr);
             ++runs;
-            if (!r.m.pass() || (s == 2 && r.first_motion_time < 10.0)) ++failures;
-            if (!r.m.pass() || (shift == 0.0 && noise == 0.02 && delay == 0)) print(s, seed, shift, noise, delay, r);
+            if (!ok(s, r)) ++failures;
+            if (!ok(s, r) || (shift == 0.0 && noise == 0.02 && delay == 0)) print(s, seed, shift, noise, delay, r);
           }
   std::printf("closed-loop S1-S2 suite: %d/%d runs passed\n", runs - failures, runs);
   return failures == 0 ? 0 : 1;

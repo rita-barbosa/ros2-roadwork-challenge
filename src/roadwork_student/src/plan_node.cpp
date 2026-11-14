@@ -1,5 +1,5 @@
-// plan_node: subscribes to /solution/scene, waits for a confirmed GO, plans the
-// left bypass and speed, computes pure-pursuit steering and publishes
+// plan_node: subscribes to /solution/scene, stops before the entry line until a
+// confirmed GO, plans the left bypass and speed, computes pure-pursuit steering and publishes
 // /solution/plan (internal), /solution/state (JSON String) and /solution/path.
 #include <chrono>
 #include <cstdio>
@@ -53,6 +53,7 @@ class PlanNode : public rclcpp::Node {
     c.speed.lat_accel = declare_parameter("max_lateral_accel", c.speed.lat_accel);
     c.scene_timeout = declare_parameter("scene_timeout", c.scene_timeout);
     c.plan_validity = declare_parameter("plan_validity", c.plan_validity);
+    c.stop_distance = std::max(0.0, declare_parameter("stop_distance", c.stop_distance));
     planner_ = std::make_unique<rws::Planner>(c);
     scene_timeout_ = c.scene_timeout;
 
@@ -70,7 +71,8 @@ class PlanNode : public rclcpp::Node {
                 nullptr, now);
     });
     path_timer_ = create_timer(1s, [this]() { publish_path(); });
-    RCLCPP_INFO(get_logger(), "plan_node ready: bypass_y=%.2f cruise=%.2f m/s", c.path.bypass_y, c.speed.cruise);
+    RCLCPP_INFO(get_logger(), "plan_node ready: bypass_y=%.2f cruise=%.2f m/s stop_distance=%.2f m", c.path.bypass_y,
+                c.speed.cruise, c.stop_distance);
   }
 
  private:
@@ -116,11 +118,13 @@ class PlanNode : public rclcpp::Node {
         buf, sizeof(buf),
         "{\"t\":%.3f,\"state\":\"%s\",\"reason\":\"%s\",\"go\":%s,\"panel\":\"%s\",\"go_count\":%d,"
         "\"x\":%.3f,\"y\":%.3f,\"yaw\":%.4f,\"v\":%.3f,\"target_speed\":%.3f,\"steering\":%.4f,\"cte\":%.3f,"
-        "\"path_s\":%.2f,\"v_path\":%.3f,\"v_goal\":%.3f,\"scene_age\":%.3f,\"odom_age\":%.3f}",
+        "\"path_s\":%.2f,\"v_path\":%.3f,\"v_goal\":%.3f,\"v_stop\":%.3f,\"d_line\":%.3f,"
+        "\"scene_age\":%.3f,\"odom_age\":%.3f}",
         now, rws::to_string(o.state), rws_ros::json_escape(o.reason).c_str(), o.go ? "true" : "false",
         s ? rws::to_string(s->panel_state) : "UNKNOWN", s ? s->panel_go_count : 0, s ? s->ego.x : 0.0,
         s ? s->ego.y : 0.0, s ? s->ego.yaw : 0.0, s ? s->ego.v : 0.0, o.speed, o.steering, o.cte, o.path_s, o.v_path,
-        o.v_goal, s ? age(s->stamp) : -1.0, s ? age(s->ego.stamp) : -1.0);
+        o.v_goal, std::isfinite(o.v_stop) ? o.v_stop : -1.0, o.d_line, s ? age(s->stamp) : -1.0,
+        s ? age(s->ego.stamp) : -1.0);
     std_msgs::msg::String st;
     st.data = buf;
     state_pub_->publish(st);

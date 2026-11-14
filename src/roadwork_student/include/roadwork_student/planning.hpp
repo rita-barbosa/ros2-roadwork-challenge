@@ -44,6 +44,10 @@ struct PlannerConfig {
   // Goal
   double goal_x = 80.35, goal_done_x = 80.10, goal_decel = 1.0, creep_speed = 0.35;
   double speed_margin = 0.3;       // stay this far below the beacon speed limit
+  // Stop line: without entry permission the vehicle stops with the front of its
+  // collision disc stop_distance before the beacon entry line.
+  double stop_distance = 1.0;      // m, gap between vehicle front and entry line when stopped
+  double stop_decel = 1.0;         // m/s^2, deceleration of the stop-line speed profile
 };
 
 // ---------------------------------------------------------------------------
@@ -186,11 +190,14 @@ inline double pure_pursuit(const ReferencePath& path, size_t nearest, const EgoS
 }
 
 // ---------------------------------------------------------------------------
-// Decision state machine (S1: GO throughout, static works)
+// Decision state machine (S1-S2: static works, STOP/GO panel)
 // ---------------------------------------------------------------------------
-// INIT (no odometry/geometry) -> WAIT_GO (hold until the panel is confirmed GO)
-// -> APPROACH -> BYPASS -> RETURN -> FINAL -> GOAL. GO is latched once confirmed.
-// SAFE_STOP: odometry or scene missing/stale (braking).
+// INIT (no odometry/geometry) -> WAIT_GO (no confirmed GO: drive in own lane and
+// stop before the entry line) <-> APPROACH (GO confirmed, before the line)
+// -> BYPASS -> RETURN -> FINAL -> GOAL.
+// Entry permission is re-evaluated every cycle until the commitment point, where
+// the vehicle could no longer stop before the line even with full braking; GO is
+// latched there. SAFE_STOP: odometry or scene missing/stale (braking).
 enum class State : uint8_t {
   Init = 0, WaitGo = 1, Approach = 2, Bypass = 3, Return = 4, Final = 5, Goal = 6, SafeStop = 7
 };
@@ -215,8 +222,10 @@ struct PlanOutput {
   State state = State::Init;
   std::string reason;
   // diagnostics (published on /solution/state)
-  bool go = false;  // GO latched
+  bool go = false;  // GO latched (committed to entry)
   double cte = 0, path_s = 0, v_path = 0, v_goal = 0, lookahead = 0;
+  double d_line = 0;                                       // vehicle front to entry line, m
+  double v_stop = std::numeric_limits<double>::infinity();  // stop-line speed cap (inf = none)
   Point2 target;
 };
 
@@ -246,7 +255,8 @@ class Planner {
     const EgoState& e = sc.ego;
     const double v = std::max(0.0, e.v);
 
-    // Geometry from the beacon; frozen once the vehicle starts driving.
+    // Geometry from the beacon; frozen once the vehicle commits to entry. Before
+    // that the vehicle is in its own lane, where every candidate path is straight.
     if (sc.geometry_known && !go_ && (!path_.valid() || !sc.geometry.same_as(geom_))) {
       std::string why;
       ReferencePath p;
@@ -261,12 +271,21 @@ class Planner {
     if (!path_.valid()) return stop(o, State::Init, "waiting for beacon geometry");
     const Geometry& g = geom_;
 
-    // GO check: wait for a confirmed GO, then latch it.
-    if (!go_) {
-      if (sc.panel_state != Panel::Go) return stop(o, State::WaitGo, "waiting for confirmed GO");
-      go_ = true;
-    }
+    // Entry permission: a confirmed GO, re-checked every cycle until the vehicle
+    // reaches the point where it could no longer stop before the entry line; GO is
+    // latched (commitment) there. Without permission, the stop-line profile below
+    // brings the vehicle to rest stop_distance before the line.
+    o.d_line = g.entry_x - (e.x + kEgoRadius);
+    const bool permission = sc.panel_state == Panel::Go;
+    if (!go_ && permission && o.d_line <= brake_distance(v)) go_ = true;
     o.go = go_;
+    const bool wait = !go_ && !permission;
+    if (wait) {
+      const double d = o.d_line - cfg_.stop_distance;  // to the stop point
+      o.v_stop = d <= 0.0 ? 0.0
+                          : std::max(cfg_.creep_speed,
+                                     std::sqrt(2.0 * cfg_.stop_decel * std::max(0.0, d - v * cfg_.control_delay)));
+    }
 
     // Projection on the reference path.
     const auto& pts = path_.points();
@@ -284,7 +303,7 @@ class Planner {
       const double d = cfg_.goal_x - e.x - v * cfg_.control_delay;
       o.v_goal = std::max(cfg_.creep_speed, std::sqrt(2.0 * cfg_.goal_decel * std::max(0.0, d)));
     }
-    target = std::min(target, o.v_goal);
+    target = std::min({target, o.v_goal, o.v_stop});
     o.speed_limit = std::min(kSpeedLimit, g.speed_limit) - cfg_.speed_margin;
     target = clampd(target, 0.0, o.speed_limit);
 
@@ -295,7 +314,13 @@ class Planner {
     o.speed = target;
     o.hold = target < 1e-3;
 
-    // State from the position along the route.
+    // State from the permission and the position along the route.
+    if (wait) {
+      o.state = State::WaitGo;
+      o.reason = std::string("no confirmed GO (panel ") + to_string(sc.panel_state) +
+                 (o.hold ? "): holding at stop line" : "): approaching stop line");
+      return o;
+    }
     if (e.x + kEgoRadius < g.entry_x) { o.state = State::Approach; o.reason = "GO confirmed; approaching work zone"; }
     else if (e.x < path_.x2()) { o.state = State::Bypass; o.reason = "passing the works on the left"; }
     else if (e.x < g.exit_x) { o.state = State::Return; o.reason = "returning to own lane"; }
@@ -325,6 +350,10 @@ class Planner {
     o.reason = why;
     return o;
   }
+
+  // Distance covered while reacting (control delay) and then braking at the
+  // vehicle's maximum deceleration from speed v.
+  double brake_distance(double v) const { return v * cfg_.control_delay + v * v / (2.0 * kMaxBrake); }
 
   double profile_speed(size_t i, double v) const {
     const auto& p = path_.points();

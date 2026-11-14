@@ -14,6 +14,7 @@ plan:
     max_lateral_accel: 1.5      # m/s^2
     scene_timeout: 0.25         # s
     plan_validity: 0.25         # s, Plan.valid_until = stamp + this
+    stop_distance: 1.0          # m, gap between vehicle front and entry line when stopped without GO
 act:
   ros__parameters:
     use_sim_time: true
