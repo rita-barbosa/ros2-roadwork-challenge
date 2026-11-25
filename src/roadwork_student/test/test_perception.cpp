@@ -115,6 +115,11 @@ static void test_beacon() {
   CHECK(!m.update(bad, 1.0));
   CHECK(!m.update(beacon(5.0), 1.0));  // future
   CHECK(m.rejected() == 5);
+  bad = beacon(1.0);
+  bad.valid_for = 0.0;  // a beacon without a positive validity interval can never be fresh
+  CHECK(!m.update(bad, 1.0));
+  CHECK(m.update(beacon(1.0), 1.0));
+  CHECK_NEAR(m.valid_for(), 1.2, 1e-12);
 }
 
 static void test_sense_core() {

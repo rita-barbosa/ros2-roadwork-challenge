@@ -29,6 +29,7 @@ uint32 camera_rejected           # cumulative malformed / repeated / future fram
 # ---- Roadwork beacon (/infra/roadwork/beacon): cached work-zone geometry ----
 bool geometry_known              # at least one valid beacon received
 builtin_interfaces/Time beacon_stamp
+float64 beacon_valid_for         # validity interval announced by that beacon (s); Plan judges freshness
 float64 entry_x
 float64 work_start
 float64 work_end

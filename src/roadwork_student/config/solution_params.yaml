@@ -21,6 +21,8 @@ plan:
     scene_timeout: 0.25         # s
     plan_validity: 0.25         # s, Plan.valid_until = stamp + this
     stop_distance: 1.0          # m, gap between vehicle front and entry line when stopped without GO
+    beacon_max_age: 1.2         # s, a beacon older than min(valid_for, this) cannot authorise entry
+    camera_timeout: 0.30        # s, only used to explain why the panel is UNKNOWN
     use_traffic_gap: true       # ablation switch: radar-based gap check for the opposing lane
     radar_timeout: 0.35         # s, older radar evidence cannot certify the opposing lane
     gap_time: 3.0               # s, margin on top of the ego clearing time

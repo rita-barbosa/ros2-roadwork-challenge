@@ -104,7 +104,7 @@ struct SceneData {
   int panel_go_count = 0, camera_rejected = 0;
   // beacon (geometry only)
   bool geometry_known = false;
-  double beacon_stamp = -1.0;
+  double beacon_stamp = -1.0, beacon_valid_for = 0.0;
   Geometry geometry;
   int beacon_rejected = 0;
   // radar (moving-object tracks)

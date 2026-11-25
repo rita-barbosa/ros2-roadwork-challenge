@@ -53,6 +53,10 @@ struct PlannerConfig {
   // [opp_lo, opp_hi] (path x where the ego disc crosses y = 0). Entering is only
   // allowed if no confirmed track can reach that interval (widened by the
   // combined radii and a margin) before the ego has left it plus gap_time.
+  // Information freshness before entry. A beacon is fresh for min(its own
+  // valid_for, beacon_max_age); cached geometry is never permission to enter.
+  double beacon_max_age = 1.2;     // s (beacon validity interval is 1.2 s)
+  double camera_timeout = 0.30;    // s, only used to explain WHY the panel is UNKNOWN
   bool use_traffic_gap = true;     // ablation switch
   double radar_timeout = 0.35;     // s, radar is 10 Hz
   double gap_time = 3.0;           // s, safety margin on top of the ego clearing time
@@ -215,17 +219,22 @@ inline double pure_pursuit(const ReferencePath& path, size_t nearest, const EgoS
 // Decision state machine
 // ---------------------------------------------------------------------------
 // INIT (no odometry/geometry) -> WAIT_GO (no confirmed GO: drive in own lane and
-// stop before the entry line) / YIELD (GO, but opposing traffic leaves no safe
-// gap: same stop line) <-> APPROACH (entry permitted, before the line)
-// -> BYPASS -> RETURN -> FINAL -> GOAL.
-// Entry permission (confirmed GO AND a safe traffic gap) is re-evaluated every
-// cycle until the commitment point, where the vehicle could no longer stop
-// before the line even with full braking; it is latched there. After
-// commitment, a conflicting track still makes the ego YIELD before the
-// opposing-lane interval if it can stop there. SAFE_STOP: odometry or scene
-// missing/stale (braking).
+// stop before the entry line) / WAIT_INFO (GO, but the beacon or the radar is
+// stale: same stop line) / YIELD (GO and fresh evidence, but opposing traffic
+// leaves no safe gap: same stop line) <-> APPROACH (entry permitted, before the
+// line) -> BYPASS -> RETURN -> FINAL -> GOAL.
+// Entry permission (confirmed fresh GO AND fresh beacon AND a safe traffic gap
+// certified by fresh radar) is re-evaluated every cycle until the commitment
+// point, where the vehicle could no longer stop before the line even with full
+// braking; it is latched there.
+// After commitment the reference path is frozen (cached beacon geometry): the
+// camera and the beacon are no longer needed, so losing them does not stop the
+// manoeuvre. A conflicting track (or stale radar) still makes the ego wait
+// before the opposing-lane interval if it can stop there.
+// SAFE_STOP: odometry or scene missing/stale (braking).
 enum class State : uint8_t {
-  Init = 0, WaitGo = 1, Approach = 2, Bypass = 3, Return = 4, Final = 5, Goal = 6, SafeStop = 7, Yield = 8
+  Init = 0, WaitGo = 1, Approach = 2, Bypass = 3, Return = 4, Final = 5, Goal = 6, SafeStop = 7, Yield = 8,
+  WaitInfo = 9
 };
 
 inline const char* to_string(State s) {
@@ -238,6 +247,7 @@ inline const char* to_string(State s) {
     case State::Final: return "FINAL";
     case State::Goal: return "GOAL";
     case State::Yield: return "YIELD";
+    case State::WaitInfo: return "WAIT_INFO";
     default: return "SAFE_STOP";
   }
 }
@@ -254,6 +264,9 @@ struct PlanOutput {
   double d_line = 0;                                       // vehicle front to entry line, m
   double v_stop = std::numeric_limits<double>::infinity();  // stop-line speed cap (inf = none)
   double v_yield = std::numeric_limits<double>::infinity(); // committed yield cap (inf = none)
+  // information freshness (ages in s, -1 = never received)
+  bool beacon_fresh = false;
+  double beacon_age = -1, camera_age = -1;
   // traffic gap
   bool gap_ok = true, radar_fresh = false;
   std::string gap_reason;
@@ -321,6 +334,10 @@ class Planner {
     // brings the vehicle to rest stop_distance before the line.
     o.d_line = g.entry_x - (e.x + kEgoRadius);
     const bool panel_go = sc.panel_state == Panel::Go;
+    o.camera_age = sc.camera_stamp > 0 ? now - sc.camera_stamp : -1.0;
+    o.beacon_age = sc.beacon_stamp >= 0 ? now - sc.beacon_stamp : -1.0;
+    const double beacon_ttl = std::min(cfg_.beacon_max_age, sc.beacon_valid_for);
+    o.beacon_fresh = sc.geometry_known && is_fresh(now, sc.beacon_stamp, beacon_ttl);
     const GapCheck gap = traffic_gap(sc, now, e, v);
     o.gap_ok = gap.ok;
     o.radar_fresh = gap.radar_fresh;
@@ -330,7 +347,7 @@ class Planner {
     o.conflict_x = gap.conflict_x;
     o.conflict_vx = gap.conflict_vx;
     o.n_tracks = gap.n_tracks;
-    const bool permission = panel_go && gap.ok;
+    const bool permission = panel_go && o.beacon_fresh && gap.ok;
     if (!go_ && permission && o.d_line <= brake_distance(v)) go_ = true;
     o.go = go_;
     const bool wait = !go_ && !permission;
@@ -377,7 +394,18 @@ class Planner {
       const char* at = o.hold ? ": holding at stop line" : ": approaching stop line";
       if (!panel_go) {
         o.state = State::WaitGo;
-        o.reason = std::string("no confirmed GO (panel ") + to_string(sc.panel_state) + ")" + at;
+        o.reason = std::string("no confirmed GO (panel ") + to_string(sc.panel_state) + panel_detail(sc, now) + ")" +
+                   (o.beacon_fresh ? "" : (o.beacon_age < 0 ? "; no beacon" : "; beacon stale")) + at;
+      } else if (!o.beacon_fresh) {
+        o.state = State::WaitInfo;
+        char buf[128];
+        if (o.beacon_age < 0) std::snprintf(buf, sizeof(buf), "GO, but no beacon received");
+        else std::snprintf(buf, sizeof(buf), "GO, but beacon stale (age %.2f s > %.2f s): cached geometry is not permission",
+                           o.beacon_age, beacon_ttl);
+        o.reason = std::string(buf) + at;
+      } else if (!gap.radar_fresh) {
+        o.state = State::WaitInfo;
+        o.reason = "GO, but " + gap.reason + at;
       } else {
         o.state = State::Yield;
         o.reason = "GO, but " + gap.reason + at;
@@ -385,12 +413,16 @@ class Planner {
       return o;
     }
     if (yielding) {
-      o.state = State::Yield;
+      o.state = gap.radar_fresh ? State::Yield : State::WaitInfo;
       o.reason = "committed, but " + gap.reason + (o.hold ? ": holding before opposing lane" : ": yielding before opposing lane");
       return o;
     }
     if (e.x + kEgoRadius < g.entry_x) { o.state = State::Approach; o.reason = "GO confirmed; approaching work zone"; }
-    else if (e.x < path_.x2()) { o.state = State::Bypass; o.reason = "passing the works on the left"; }
+    else if (e.x < path_.x2()) {
+      o.state = State::Bypass;
+      o.reason = o.beacon_fresh ? "passing the works on the left"
+                                : "passing the works on the left (beacon stale: cached geometry, path frozen)";
+    }
     else if (e.x < g.exit_x) { o.state = State::Return; o.reason = "returning to own lane"; }
     else { o.state = State::Final; o.reason = "own lane, approaching goal"; }
     if (e.x >= cfg_.goal_done_x) {
@@ -422,6 +454,20 @@ class Planner {
   // Distance covered while reacting (control delay) and then braking at the
   // vehicle's maximum deceleration from speed v.
   double brake_distance(double v) const { return v * cfg_.control_delay + v * v / (2.0 * kMaxBrake); }
+
+  // Why the filtered panel is not GO (for the decision log).
+  std::string panel_detail(const SceneData& sc, double now) const {
+    if (sc.camera_stamp <= 0) return ", no camera frame";
+    const double age = now - sc.camera_stamp;
+    char buf[96];
+    if (age > cfg_.camera_timeout) { std::snprintf(buf, sizeof(buf), ", camera stale %.2f s", age); return buf; }
+    if (sc.panel_raw == Panel::Unknown) return ", blank/ambiguous frame";
+    if (sc.panel_raw == Panel::Go) {
+      std::snprintf(buf, sizeof(buf), ", GO frames %d/confirm", sc.panel_go_count);
+      return buf;
+    }
+    return "";
+  }
 
   // Speed cap that brings the vehicle to rest after distance d (creeping at the end).
   double stop_profile(double d, double v) const {

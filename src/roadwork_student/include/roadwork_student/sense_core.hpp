@@ -122,6 +122,7 @@ class SenseCore {
 
     s.geometry_known = beacon_.geometry_known();
     s.beacon_stamp = beacon_.stamp();
+    s.beacon_valid_for = beacon_.valid_for();
     s.geometry = beacon_.geometry();
     s.beacon_rejected = beacon_.rejected();
 

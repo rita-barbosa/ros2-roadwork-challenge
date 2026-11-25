@@ -129,6 +129,7 @@ class BeaconMonitor {
     if (!finite_all({b.stamp, b.valid_for, g.entry_x, g.work_start, g.work_end, g.exit_x, g.speed_limit}))
       return reject("non-finite field");
     if (b.stamp < 0) return reject("negative stamp");
+    if (b.valid_for <= 0.0 || b.valid_for > 10.0) return reject("implausible validity interval");
     if (is_future(now, b.stamp)) return reject("future stamp");
     if (have_ && b.stamp <= last_.stamp) return reject("repeated/out-of-order beacon");
     if (g.pass_side != 1) return reject("unsupported pass_side (only +1/left)");
@@ -143,6 +144,7 @@ class BeaconMonitor {
   bool geometry_known() const { return have_; }
   const Geometry& geometry() const { return last_.g; }
   double stamp() const { return have_ ? last_.stamp : -1.0; }
+  double valid_for() const { return have_ ? last_.valid_for : 0.0; }
   int rejected() const { return rejected_; }
 
  private:

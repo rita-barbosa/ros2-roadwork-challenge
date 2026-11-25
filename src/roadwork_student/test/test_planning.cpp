@@ -40,7 +40,7 @@ static SceneData scene(double now, double x, double v, Panel panel) {
   s.stamp = now;
   s.ego.stamp = now; s.ego.x = x; s.ego.y = kOwnLaneY; s.ego.v = v; s.ego.valid = true;
   s.panel_state = panel; s.panel_raw = panel; s.camera_stamp = now;
-  s.geometry_known = true; s.beacon_stamp = now;
+  s.geometry_known = true; s.beacon_stamp = now; s.beacon_valid_for = 1.2;
   s.geometry = geom(0);
   s.radar_stamp = now;  // fresh radar, no moving traffic
   return s;
@@ -158,11 +158,12 @@ static void test_traffic_gap() {
     s.tracks = {track(6, 0.0, 33, -3)};  // at x=33 five seconds ago -> now at x=18
     CHECK(pl.step(s, 5).gap_ok);
   }
-  {  // Stale radar: the opposing lane cannot be certified.
+  {  // Stale radar: the opposing lane cannot be certified (information missing, not traffic).
     SceneData s = scene(6, stop_x, 0, Panel::Go);
     s.radar_stamp = 5.5;
     const PlanOutput o = pl.step(s, 6);
-    CHECK(o.state == State::Yield && !o.gap_ok && !o.radar_fresh);
+    CHECK(o.state == State::WaitInfo && !o.gap_ok && !o.radar_fresh);
+    CHECK(o.speed == 0.0 && o.hold);
   }
   {  // Committed, a conflict appears before the opposing lane: stop before it if still possible.
     Planner p2;
@@ -187,6 +188,58 @@ static void test_traffic_gap() {
     SceneData s = scene(1, stop_x, 0, Panel::Go);
     s.tracks = {track(8, 1, 60, -3)};
     CHECK(p3.step(s, 1).state == State::Approach);
+  }
+}
+
+static void test_information_loss() {
+  Planner pl;
+  const double stop_x = 25 - kEgoRadius - pl.config().stop_distance;
+  {  // GO, but the newest beacon is older than its validity: WAIT_INFO at the stop line.
+    SceneData s = scene(10, stop_x, 0, Panel::Go);
+    s.beacon_stamp = 8.5;
+    const PlanOutput o = pl.step(s, 10);
+    CHECK(o.state == State::WaitInfo && !o.beacon_fresh);
+    CHECK(o.speed == 0.0 && o.hold);
+    CHECK(!pl.go_latched());
+    // Far from the line the vehicle still approaches (and later stops before it).
+    SceneData far = scene(10.05, 8, 2, Panel::Go);
+    far.beacon_stamp = 8.5;
+    const PlanOutput f = pl.step(far, 10.05);
+    CHECK(f.state == State::WaitInfo && f.speed > 0.0);
+  }
+  {  // A beacon announcing a shorter validity is honoured.
+    SceneData s = scene(10, stop_x, 0, Panel::Go);
+    s.beacon_stamp = 9.5; s.beacon_valid_for = 0.3;
+    CHECK(pl.step(s, 10).state == State::WaitInfo);
+  }
+  {  // No beacon ever: INIT (no geometry), never entry.
+    Planner p2;
+    SceneData s = scene(1, stop_x, 0, Panel::Go);
+    s.geometry_known = false; s.beacon_stamp = -1;
+    CHECK(p2.step(s, 1).state == State::Init);
+  }
+  {  // Blank camera (UNKNOWN) together with a stale beacon: WAIT_GO explains the panel first.
+    SceneData s = scene(10, stop_x, 0, Panel::Unknown);
+    s.beacon_stamp = 8.5;
+    const PlanOutput o = pl.step(s, 10);
+    CHECK(o.state == State::WaitGo);
+    CHECK(o.reason.find("blank") != std::string::npos);
+  }
+  {  // Recovery: fresh beacon and GO again -> entry permitted.
+    const PlanOutput o = pl.step(scene(11, stop_x, 0, Panel::Go), 11);
+    CHECK(o.state == State::Approach && o.beacon_fresh && o.speed > 0.0);
+  }
+  {  // After commitment the cached geometry carries the manoeuvre: beacon and camera loss do not stop it.
+    Planner p3;
+    p3.step(scene(1, 5, 0, Panel::Go), 1);
+    p3.step(scene(2, 22.5, 3.0, Panel::Go), 2);
+    CHECK(p3.go_latched());
+    SceneData s = scene(5, 35, 3.0, Panel::Unknown);
+    s.beacon_stamp = 2.0;
+    s.camera_stamp = 2.0;
+    const PlanOutput o = p3.step(s, 5);
+    CHECK(o.state == State::Bypass && o.speed > 1.0 && !o.hold);
+    CHECK(o.reason.find("cached geometry") != std::string::npos);
   }
 }
 
@@ -218,6 +271,7 @@ int main() {
   test_path_geometry();
   test_decisions();
   test_traffic_gap();
+  test_information_loss();
   test_guard();
   return TEST_SUMMARY("test_planning");
 }

@@ -36,6 +36,7 @@ class SenseNode : public rclcpp::Node {
     c.tracker.confirm_hits = declare_parameter("radar_confirm_hits", c.tracker.confirm_hits);
     c.tracker.miss_limit = declare_parameter("radar_miss_limit", c.tracker.miss_limit);
     c.tracker.max_coast = declare_parameter("radar_max_coast", c.tracker.max_coast);
+    cfg_ = c;
     core_ = std::make_unique<rws::SenseCore>(c);
 
     const auto sensor_qos = rclcpp::SensorDataQoS();  // simulator sensors are best-effort
@@ -54,6 +55,7 @@ class SenseNode : public rclcpp::Node {
     // If odometry stops, keep publishing scenes (ego_valid=false) so Plan sees the cause.
     watchdog_ = create_timer(50ms, [this]() {
       const double now = rws_ros::now_sec(*this);
+      check_episode(now);
       if (last_scene_ < 0 || now - last_scene_ > 0.075) publish_scene(now);
     });
     RCLCPP_INFO(get_logger(), "sense_node ready: GO needs %d consecutive frames", c.go_confirm);
@@ -70,8 +72,19 @@ class SenseNode : public rclcpp::Node {
   }
   std::map<std::string, double> last_warn_;
 
+  void check_episode(double now) {
+    if (!episode_.restarted(now)) return;
+    RCLCPP_WARN(get_logger(), "/clock jumped back to t=%.2f: new episode, resetting perception state", now);
+    core_ = std::make_unique<rws::SenseCore>(cfg_);
+    last_scene_ = -1.0;
+    last_panel_ = rws::Panel::Unknown;
+    known_tracks_.clear();
+    last_warn_.clear();
+  }
+
   void on_odom(const nav_msgs::msg::Odometry& m) {
     const double now = rws_ros::now_sec(*this);
+    check_episode(now);
     if (m.header.frame_id != "map") return warn("odometry", "frame_id is not map");
     const auto& q = m.pose.pose.orientation;
     rws::EgoState e;
@@ -161,6 +174,7 @@ class SenseNode : public rclcpp::Node {
 
     m.geometry_known = s.geometry_known;
     m.beacon_stamp = to_msg(s.beacon_stamp);
+    m.beacon_valid_for = s.beacon_valid_for;
     m.entry_x = s.geometry.entry_x;
     m.work_start = s.geometry.work_start;
     m.work_end = s.geometry.work_end;
@@ -191,7 +205,9 @@ class SenseNode : public rclcpp::Node {
     last_scene_ = now;
   }
 
+  rws::SenseConfig cfg_;
   std::unique_ptr<rws::SenseCore> core_;
+  rws_ros::EpisodeWatch episode_;
   double last_scene_ = -1.0;
   rws::Panel last_panel_ = rws::Panel::Unknown;
   std::map<int, bool> known_tracks_;

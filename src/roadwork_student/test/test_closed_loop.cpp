@@ -8,7 +8,7 @@
 //
 // This is algorithm-level evidence only; it does not replace ROS acceptance
 // (DDS, QoS, executor timing). Usage:
-//   test_closed_loop                     run the S1-S3 regression suite
+//   test_closed_loop                     run the S1-S4 regression suite
 //   test_closed_loop S SEED [SHIFT] [NOISE] [DELAY_TICKS] [TRAFFIC] [--no-gap] [--trace=FILE.csv]
 #include <cstdio>
 #include <cstdlib>
@@ -50,7 +50,15 @@ static bool stopped_at_line(const RunResult& r) {
   const double stop_front = 25.0 - rws::PlannerConfig{}.stop_distance;
   return r.wait_stop_front >= stop_front - 0.3 && r.wait_stop_front < 25.0;
 }
-static bool ok(int s, const RunResult& r) { return r.m.pass() && (s != 2 || stopped_at_line(r)); }
+// S4: the vehicle must not enter before both camera and beacon are back
+// (t >= 8 s, used for scoring only) -- stricter than entry_violation, which
+// only checks the blackout itself.
+static bool ok(int s, const RunResult& r) {
+  if (!r.m.pass()) return false;
+  if (s == 2) return stopped_at_line(r);
+  if (s == 4) return r.entry_time >= 8.0;
+  return true;
+}
 
 static RunResult run(const Options& opt) {
   rw::Config cfg;
@@ -161,11 +169,11 @@ int main(int argc, char** argv) {
     print(opt, r);
     return ok(opt.scenario, r) ? 0 : 1;
   }
-  // Regression suite: S1-S3 x seeds 1..3 x default and boundary geometry/noise,
+  // Regression suite: S1-S4 x seeds 1..3 x default and boundary geometry/noise,
   // with 0 and 2 ticks (0.1 s) of extra command delay; S3 also at the traffic
   // speed bounds.
   int failures = 0, runs = 0;
-  for (int s : {1, 2, 3})
+  for (int s : {1, 2, 3, 4})
     for (unsigned seed : {1u, 2u, 3u})
       for (double shift : {0.0, -2.0, 2.0})
         for (double noise : {0.02, 0.0, 0.05})
@@ -179,6 +187,6 @@ int main(int argc, char** argv) {
               if (!ok(s, r)) ++failures;
               if (!ok(s, r) || (shift == 0.0 && noise == 0.02 && delay == 0 && traffic == 3.0)) print(o, r);
             }
-  std::printf("closed-loop S1-S3 suite: %d/%d runs passed\n", runs - failures, runs);
+  std::printf("closed-loop S1-S4 suite: %d/%d runs passed\n", runs - failures, runs);
   return failures == 0 ? 0 : 1;
 }

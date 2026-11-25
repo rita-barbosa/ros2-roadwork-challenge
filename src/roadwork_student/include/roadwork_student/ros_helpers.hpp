@@ -36,6 +36,22 @@ inline void ensure_sim_time(rclcpp::Node& node) {
 
 inline double now_sec(rclcpp::Node& node) { return node.get_clock()->now().seconds(); }
 
+// New-episode detection: every episode is a fresh launch, but if the simulator
+// is restarted while a node keeps running, /clock jumps backwards. The node
+// then discards ALL episode state (filters, tracks, latched GO, path, steering
+// memory) instead of carrying it into the new episode.
+class EpisodeWatch {
+ public:
+  bool restarted(double now) {
+    const bool jumped = last_ >= 0.0 && now < last_ - 1.0;
+    if (jumped || now > last_) last_ = now;
+    return jumped;
+  }
+
+ private:
+  double last_ = -1.0;
+};
+
 inline std::string json_escape(const std::string& s) {
   std::string o;
   for (char c : s) {

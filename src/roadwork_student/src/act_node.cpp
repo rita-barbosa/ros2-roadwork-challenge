@@ -25,6 +25,7 @@ class ActNode : public rclcpp::Node {
     rws::GuardConfig c;
     c.max_speed = declare_parameter("max_speed", c.max_speed);
     c.max_plan_age = declare_parameter("max_plan_age", c.max_plan_age);
+    cfg_ = c;
     guard_ = std::make_unique<rws::CommandGuard>(c);
 
     plan_sub_ = create_subscription<PlanMsg>("/solution/plan", rclcpp::QoS(1).reliable(),
@@ -52,6 +53,13 @@ class ActNode : public rclcpp::Node {
   }
 
   void send(double now) {
+    if (episode_.restarted(now)) {
+      RCLCPP_WARN(get_logger(), "/clock jumped back to t=%.2f: new episode, dropping the old plan", now);
+      guard_ = std::make_unique<rws::CommandGuard>(cfg_);
+      plan_ = rws::PlanInput{};
+      last_pub_ = -1.0;
+      last_ok_ = false;
+    }
     const rws::GuardOutput o = guard_->step(plan_, now);
     CommandMsg c;
     c.header.stamp = to_msg(now);
@@ -67,7 +75,9 @@ class ActNode : public rclcpp::Node {
     }
   }
 
+  rws::GuardConfig cfg_;
   std::unique_ptr<rws::CommandGuard> guard_;
+  rws_ros::EpisodeWatch episode_;
   rws::PlanInput plan_;
   double last_pub_ = -1.0;
   bool last_ok_ = false;

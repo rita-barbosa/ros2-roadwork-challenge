@@ -39,6 +39,7 @@ static rws::SceneData from_msg(const SceneMsg& m) {
   s.panel_go_count = static_cast<int>(m.panel_go_count);
   s.geometry_known = m.geometry_known;
   s.beacon_stamp = m.geometry_known ? to_sec(m.beacon_stamp) : -1.0;
+  s.beacon_valid_for = std::isfinite(m.beacon_valid_for) ? m.beacon_valid_for : 0.0;
   s.geometry.entry_x = m.entry_x; s.geometry.work_start = m.work_start; s.geometry.work_end = m.work_end;
   s.geometry.exit_x = m.exit_x; s.geometry.speed_limit = m.speed_limit; s.geometry.pass_side = m.pass_side;
   s.radar_stamp = to_sec(m.radar_stamp) > 0 ? to_sec(m.radar_stamp) : -1.0;
@@ -72,6 +73,8 @@ class PlanNode : public rclcpp::Node {
     c.scene_timeout = declare_parameter("scene_timeout", c.scene_timeout);
     c.plan_validity = declare_parameter("plan_validity", c.plan_validity);
     c.stop_distance = std::max(0.0, declare_parameter("stop_distance", c.stop_distance));
+    c.beacon_max_age = declare_parameter("beacon_max_age", c.beacon_max_age);
+    c.camera_timeout = declare_parameter("camera_timeout", c.camera_timeout);
     c.use_traffic_gap = declare_parameter("use_traffic_gap", c.use_traffic_gap);
     c.radar_timeout = declare_parameter("radar_timeout", c.radar_timeout);
     c.gap_time = declare_parameter("gap_time", c.gap_time);
@@ -79,6 +82,7 @@ class PlanNode : public rclcpp::Node {
     c.gap_a_nominal = declare_parameter("gap_a_nominal", c.gap_a_nominal);
     c.traffic_radius = declare_parameter("traffic_radius", c.traffic_radius);
     c.gap_margin = declare_parameter("gap_margin", c.gap_margin);
+    cfg_ = c;
     planner_ = std::make_unique<rws::Planner>(c);
     scene_timeout_ = c.scene_timeout;
 
@@ -91,6 +95,7 @@ class PlanNode : public rclcpp::Node {
     // Input deadline: no scene => publish a hold plan so Act brakes under our control.
     watchdog_ = create_timer(50ms, [this]() {
       const double now = rws_ros::now_sec(*this);
+      check_episode(now);
       if (last_scene_rx_ < 0 || now - last_scene_rx_ > scene_timeout_)
         publish(planner_->timeout_output(now, last_scene_rx_ < 0 ? "no scene received yet" : "scene deadline missed"),
                 nullptr, now);
@@ -101,8 +106,21 @@ class PlanNode : public rclcpp::Node {
   }
 
  private:
+  void check_episode(double now) {
+    if (!episode_.restarted(now)) return;
+    RCLCPP_WARN(get_logger(), "/clock jumped back to t=%.2f: new episode, resetting decision state", now);
+    planner_ = std::make_unique<rws::Planner>(cfg_);
+    last_scene_rx_ = -1.0;
+    published_path_version_ = 0;
+    last_state_ = rws::State::Init;
+    logged_go_ = false;
+    last_gap_ok_ = true;
+    last_beacon_fresh_ = false;
+  }
+
   void on_scene(const SceneMsg& m) {
     const double now = rws_ros::now_sec(*this);
+    check_episode(now);
     last_scene_rx_ = now;
     const rws::SceneData s = from_msg(m);
     const rws::PlanOutput out = planner_->step(s, now);
@@ -135,6 +153,12 @@ class PlanNode : public rclcpp::Node {
       RCLCPP_INFO(get_logger(), "GO latched at t=%.2f x=%.2f", now, s ? s->ego.x : 0.0);
       logged_go_ = true;
     }
+    if (s && s->geometry_known && o.beacon_fresh != last_beacon_fresh_) {
+      if (o.beacon_fresh) RCLCPP_INFO(get_logger(), "beacon FRESH at t=%.2f (age %.2f s)", now, o.beacon_age);
+      else RCLCPP_WARN(get_logger(), "beacon STALE at t=%.2f (age %.2f s)%s", now, o.beacon_age,
+                       o.go ? ": committed, continuing on cached geometry" : ": no entry until a fresh beacon");
+      last_beacon_fresh_ = o.beacon_fresh;
+    }
     if (s && o.gap_ok != last_gap_ok_) {
       RCLCPP_INFO(get_logger(), "traffic gap %s at t=%.2f x=%.2f: %s", o.gap_ok ? "SAFE" : "UNSAFE", now, s->ego.x,
                   o.gap_reason.c_str());
@@ -152,13 +176,15 @@ class PlanNode : public rclcpp::Node {
         "\"path_s\":%.2f,\"v_path\":%.3f,\"v_goal\":%.3f,\"v_stop\":%.3f,\"v_yield\":%.3f,\"d_line\":%.3f,"
         "\"gap_ok\":%s,\"radar_fresh\":%s,\"n_tracks\":%d,\"conflict_id\":%d,\"conflict_x\":%.2f,"
         "\"conflict_vx\":%.2f,\"t_clear\":%.2f,\"radar_age\":%.3f,"
+        "\"beacon_fresh\":%s,\"beacon_age\":%.3f,\"camera_age\":%.3f,"
         "\"scene_age\":%.3f,\"odom_age\":%.3f}",
         now, rws::to_string(o.state), rws_ros::json_escape(o.reason).c_str(), o.go ? "true" : "false",
         s ? rws::to_string(s->panel_state) : "UNKNOWN", s ? s->panel_go_count : 0, s ? s->ego.x : 0.0,
         s ? s->ego.y : 0.0, s ? s->ego.yaw : 0.0, s ? s->ego.v : 0.0, o.speed, o.steering, o.cte, o.path_s, o.v_path,
         o.v_goal, cap(o.v_stop), cap(o.v_yield), o.d_line, o.gap_ok ? "true" : "false",
         o.radar_fresh ? "true" : "false", o.n_tracks, o.conflict_id, o.conflict_x, o.conflict_vx, o.t_clear,
-        s ? age(s->radar_stamp) : -1.0, s ? age(s->stamp) : -1.0, s ? age(s->ego.stamp) : -1.0);
+        s ? age(s->radar_stamp) : -1.0, o.beacon_fresh ? "true" : "false", o.beacon_age, o.camera_age,
+        s ? age(s->stamp) : -1.0, s ? age(s->ego.stamp) : -1.0);
     std_msgs::msg::String st;
     st.data = buf;
     state_pub_->publish(st);
@@ -188,11 +214,13 @@ class PlanNode : public rclcpp::Node {
     }
   }
 
+  rws::PlannerConfig cfg_;
   std::unique_ptr<rws::Planner> planner_;
+  rws_ros::EpisodeWatch episode_;
   double scene_timeout_ = 0.25, last_scene_rx_ = -1.0;
   int published_path_version_ = 0;
   rws::State last_state_ = rws::State::Init;
-  bool logged_go_ = false, last_gap_ok_ = true;
+  bool logged_go_ = false, last_gap_ok_ = true, last_beacon_fresh_ = false;
   rclcpp::Subscription<SceneMsg>::SharedPtr scene_sub_;
   rclcpp::Publisher<PlanMsg>::SharedPtr plan_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr state_pub_;
