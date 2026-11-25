@@ -1,0 +1,3 @@
+{"software": "d1-submission-4-g63c8bf9", "scenario": 2, "seed": 3, "extra_args": "work_shift:=-2.0", "label": "geometry variation",
+ "visualization": false, "rviz": false, "ros_distro": "jazzy", "ros_domain_id": "37",
+ "wall_seconds": 31, "date": "2026-11-25T17:22:29+00:00"}

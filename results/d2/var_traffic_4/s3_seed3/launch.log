@@ -1,0 +1,53 @@
+[INFO] [launch]: All log files can be found below /home/alf/.ros/log/2026-11-25-17-40-54-062637-alf-Ubuntu-24-04-PC-Q35-ICH9-2009-32655
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [simulator_node-1]: process started with pid [32659]
+[INFO] [sense_node-2]: process started with pid [32660]
+[INFO] [plan_node-3]: process started with pid [32661]
+[INFO] [act_node-4]: process started with pid [32662]
+[plan_node-3] [INFO] [1795628454.139770341] [plan]: plan_node ready: bypass_y=1.25 cruise=3.50 m/s stop_distance=1.00 m traffic_gap=on obstacle_check=on
+[act_node-4] [INFO] [1795628454.145101113] [act]: act_node ready: speed cap 3.80 m/s, steering +/-0.45 rad, slew 0.60 rad/s
+[sense_node-2] [INFO] [1795628454.149846916] [sense]: sense_node ready: GO needs 3 consecutive frames
+[plan_node-3] [INFO] [1795628454.192798871] [plan]: state INIT -> SAFE_STOP at t=0.05 x=0.00: no scene received yet
+[act_node-4] [INFO] [1795628454.572921695] [act]: plan valid at t=0.15: plan requests hold
+[sense_node-2] [WARN] [1795628454.693179905] [sense]: rejected radar: no odometry near the radar stamp
+[plan_node-3] [INFO] [1795628454.693650274] [plan]: state SAFE_STOP -> INIT at t=0.30 x=5.00: waiting for beacon geometry
+[sense_node-2] [INFO] [1795628454.893026088] [sense]: track 1 confirmed at t=0.50: x=80.0 y=1.8 vx=-4.00
+[sense_node-2] [INFO] [1795628454.893155777] [sense]: panel UNKNOWN -> GO at t=0.50 (green=1.00 go_count=3)
+[sense_node-2] [INFO] [1795628454.893256348] [sense]: beacon geometry cached: entry=25.00 work=[42.00, 49.00] exit=68.00 limit=4.00
+[plan_node-3] [INFO] [1795628454.942963873] [plan]: state INIT -> YIELD at t=0.55 x=5.00: GO, but moving track 1 at x=79.8 vx=-4.0 m/s conflicts within 22.9 s: approaching stop line
+[plan_node-3] [INFO] [1795628454.942977873] [plan]: beacon FRESH at t=0.55 (age 0.05 s)
+[plan_node-3] [INFO] [1795628454.942982052] [plan]: traffic gap UNSAFE at t=0.55 x=5.00: moving track 1 at x=79.8 vx=-4.0 m/s conflicts within 22.9 s
+[plan_node-3] [INFO] [1795628454.943064882] [plan]: reference path v1: lane change x=[24.50, 40.00], return x=[52.00, 65.50], max steer 0.215 rad
+[plan_node-3] [INFO] [1795628460.142848294] [plan]: corridor BLOCKED at t=5.75 x=18.92 v=2.79: return at x=58.64 y=1.04, 39.79 m ahead
+[plan_node-3] [INFO] [1795628467.393391891] [plan]: corridor CLEAR at t=13.00 x=23.12
+[plan_node-3] [INFO] [1795628468.042860369] [plan]: state YIELD -> APPROACH at t=13.65 x=23.12: GO confirmed; approaching work zone
+[plan_node-3] [INFO] [1795628468.042899559] [plan]: traffic gap SAFE at t=13.65 x=23.12: traffic gap is safe
+[plan_node-3] [INFO] [1795628468.893258299] [plan]: GO latched at t=14.50 x=23.69
+[plan_node-3] [INFO] [1795628469.193350292] [plan]: state APPROACH -> BYPASS at t=14.80 x=24.15: passing the works on the left
+[sense_node-2] [INFO] [1795628473.193054207] [sense]: track 1 dropped at t=18.80
+[plan_node-3] [INFO] [1795628477.642870985] [plan]: state BYPASS -> RETURN at t=23.25 x=52.09: returning to own lane
+[plan_node-3] [INFO] [1795628482.442910796] [plan]: state RETURN -> FINAL at t=28.05 x=68.10: own lane, approaching goal
+[simulator_node-1] [INFO] [1795628487.393120713] [roadwork_simulator]: Result saved to /tmp/claude-1000/-home-alf-ros2-roadwork-challenge/d2807a1c-abaf-42a6-ac8c-16f64357ea36/scratchpad/wt/results/d2/var_traffic_4/s3_seed3/result.json: {"scenario":3,"seed":3,"work_shift":0,"traffic_speed":4,"noise":0.02,"time":33,"terminal":true,"pass":true,"finished":true,"collision":false,"offroad":false,"entry_violation":false,"lane_violation":false,"speed_violation":false,"timeout":false,"min_clearance":1.16759,"stopped_seconds":5.5,"max_speed":3.5,"rejected_commands":4}
+[plan_node-3] [INFO] [1795628487.393570443] [plan]: state FINAL -> GOAL at t=33.00 x=80.16: goal reached
+[sense_node-2] [WARN] [1795628487.442793398] [sense]: rejected radar: repeated/out-of-order radar scan
+[sense_node-2] [WARN] [1795628487.442828667] [sense]: rejected beacon: repeated/out-of-order beacon
+[sense_node-2] [WARN] [1795628487.442908747] [sense]: rejected image: repeated/out-of-order frame
+[sense_node-2] [WARN] [1795628487.442918217] [sense]: rejected odometry: repeated/out-of-order odometry
+[sense_node-2] [WARN] [1795628487.442926987] [sense]: rejected scan: repeated/out-of-order scan
+[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+[INFO] [act_node-4]: sending signal 'SIGINT' to process[act_node-4]
+[INFO] [plan_node-3]: sending signal 'SIGINT' to process[plan_node-3]
+[INFO] [sense_node-2]: sending signal 'SIGINT' to process[sense_node-2]
+[INFO] [simulator_node-1]: sending signal 'SIGINT' to process[simulator_node-1]
+[simulator_node-1] [INFO] [1795628488.948713604] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[act_node-4] [INFO] [1795628488.948889424] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[plan_node-3] [INFO] [1795628488.949268283] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[sense_node-2] [INFO] [1795628488.949461673] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[act_node-4] [INFO] [1795628488.951270390] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[simulator_node-1] [INFO] [1795628488.951977559] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[plan_node-3] [INFO] [1795628488.952350038] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[sense_node-2] [INFO] [1795628488.952635668] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[INFO] [plan_node-3]: process has finished cleanly [pid 32661]
+[INFO] [simulator_node-1]: process has finished cleanly [pid 32659]
+[INFO] [sense_node-2]: process has finished cleanly [pid 32660]
+[INFO] [act_node-4]: process has finished cleanly [pid 32662]

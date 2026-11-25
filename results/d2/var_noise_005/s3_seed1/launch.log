@@ -1,0 +1,48 @@
+[INFO] [launch]: All log files can be found below /home/alf/.ros/log/2026-11-25-17-44-48-949861-alf-Ubuntu-24-04-PC-Q35-ICH9-2009-33854
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [simulator_node-1]: process started with pid [33858]
+[INFO] [sense_node-2]: process started with pid [33859]
+[INFO] [plan_node-3]: process started with pid [33860]
+[INFO] [act_node-4]: process started with pid [33861]
+[act_node-4] [INFO] [1795628689.029008302] [act]: act_node ready: speed cap 3.80 m/s, steering +/-0.45 rad, slew 0.60 rad/s
+[plan_node-3] [INFO] [1795628689.031104518] [plan]: plan_node ready: bypass_y=1.25 cruise=3.50 m/s stop_distance=1.00 m traffic_gap=on obstacle_check=on
+[sense_node-2] [INFO] [1795628689.037339269] [sense]: sense_node ready: GO needs 3 consecutive frames
+[plan_node-3] [INFO] [1795628689.087144565] [plan]: state INIT -> SAFE_STOP at t=0.00 x=0.00: odometry missing or stale
+[plan_node-3] [INFO] [1795628689.087191234] [plan]: state SAFE_STOP -> INIT at t=0.00 x=5.00: waiting for beacon geometry
+[act_node-4] [INFO] [1795628689.087302445] [act]: plan valid at t=0.00: plan requests hold
+[sense_node-2] [INFO] [1795628689.237398636] [sense]: track 1 confirmed at t=0.20: x=81.5 y=1.8 vx=-3.00
+[sense_node-2] [INFO] [1795628689.337473003] [sense]: panel UNKNOWN -> GO at t=0.30 (green=1.00 go_count=3)
+[sense_node-2] [INFO] [1795628689.537389021] [sense]: beacon geometry cached: entry=25.00 work=[42.00, 49.00] exit=68.00 limit=4.00
+[plan_node-3] [INFO] [1795628689.587277545] [plan]: state INIT -> YIELD at t=0.55 x=5.00: GO, but moving track 1 at x=80.4 vx=-3.0 m/s conflicts within 22.9 s: approaching stop line
+[plan_node-3] [INFO] [1795628689.587316705] [plan]: beacon FRESH at t=0.55 (age 0.05 s)
+[plan_node-3] [INFO] [1795628689.587324275] [plan]: traffic gap UNSAFE at t=0.55 x=5.00: moving track 1 at x=80.4 vx=-3.0 m/s conflicts within 22.9 s
+[plan_node-3] [INFO] [1795628689.587461765] [plan]: reference path v1: lane change x=[24.50, 40.00], return x=[52.00, 65.50], max steer 0.215 rad
+[plan_node-3] [INFO] [1795628696.537534947] [plan]: corridor BLOCKED at t=7.50 x=22.32 v=1.15: return at x=59.26 y=0.88, 37.04 m ahead
+[plan_node-3] [INFO] [1795628706.237573466] [plan]: corridor CLEAR at t=17.20 x=23.12
+[plan_node-3] [INFO] [1795628707.237540215] [plan]: state YIELD -> APPROACH at t=18.20 x=23.12: GO confirmed; approaching work zone
+[plan_node-3] [INFO] [1795628707.237576535] [plan]: traffic gap SAFE at t=18.20 x=23.12: traffic gap is safe
+[plan_node-3] [INFO] [1795628708.087120317] [plan]: GO latched at t=19.05 x=23.69
+[plan_node-3] [INFO] [1795628708.387065979] [plan]: state APPROACH -> BYPASS at t=19.35 x=24.15: passing the works on the left
+[sense_node-2] [INFO] [1795628713.137338425] [sense]: track 1 dropped at t=24.10
+[plan_node-3] [INFO] [1795628716.837348748] [plan]: state BYPASS -> RETURN at t=27.80 x=52.09: returning to own lane
+[plan_node-3] [INFO] [1795628721.637474386] [plan]: state RETURN -> FINAL at t=32.60 x=68.10: own lane, approaching goal
+[simulator_node-1] [INFO] [1795628726.586965554] [roadwork_simulator]: Result saved to /tmp/claude-1000/-home-alf-ros2-roadwork-challenge/d2807a1c-abaf-42a6-ac8c-16f64357ea36/scratchpad/wt/results/d2/var_noise_005/s3_seed1/result.json: {"scenario":3,"seed":1,"work_shift":0,"traffic_speed":3,"noise":0.05,"time":37.55,"terminal":true,"pass":true,"finished":true,"collision":false,"offroad":false,"entry_violation":false,"lane_violation":false,"speed_violation":false,"timeout":false,"min_clearance":1.16839,"stopped_seconds":10.05,"max_speed":3.5,"rejected_commands":3}
+[plan_node-3] [INFO] [1795628726.587189133] [plan]: state FINAL -> GOAL at t=37.55 x=80.16: goal reached
+[sense_node-2] [WARN] [1795628726.636949018] [sense]: rejected odometry: repeated/out-of-order odometry
+[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+[INFO] [act_node-4]: sending signal 'SIGINT' to process[act_node-4]
+[INFO] [plan_node-3]: sending signal 'SIGINT' to process[plan_node-3]
+[INFO] [sense_node-2]: sending signal 'SIGINT' to process[sense_node-2]
+[INFO] [simulator_node-1]: sending signal 'SIGINT' to process[simulator_node-1]
+[sense_node-2] [INFO] [1795628727.856772901] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[plan_node-3] [INFO] [1795628727.856781251] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[act_node-4] [INFO] [1795628727.857006951] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[plan_node-3] [INFO] [1795628727.858854978] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[sense_node-2] [INFO] [1795628727.859464366] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[simulator_node-1] [INFO] [1795628727.859474006] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[act_node-4] [INFO] [1795628727.859551006] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[simulator_node-1] [INFO] [1795628727.860654505] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[INFO] [plan_node-3]: process has finished cleanly [pid 33860]
+[INFO] [act_node-4]: process has finished cleanly [pid 33861]
+[INFO] [sense_node-2]: process has finished cleanly [pid 33859]
+[INFO] [simulator_node-1]: process has finished cleanly [pid 33858]

@@ -1,0 +1,22 @@
+stdin is not a terminal device. Keyboard handling disabled.[INFO] [1795628043.575571968] [rosbag2_recorder]: Press SPACE for pausing/resuming
+[INFO] [1795628043.575583258] [rosbag2_recorder]: Event publisher thread: Started
+[INFO] [1795628043.578133274] [rosbag2_recorder]: Starting recording to '/tmp/claude-1000/-home-alf-ros2-roadwork-challenge/d2807a1c-abaf-42a6-ac8c-16f64357ea36/scratchpad/wt/results/d2/var_shift_p2/s4_seed2/bag'
+[INFO] [1795628043.578943283] [rosbag2_recorder]: Listening for topics...
+[INFO] [1795628043.578956342] [rosbag2_recorder]: Recording...
+[INFO] [1795628043.578987062] [rosbag2_recorder]: Topics discovery started.
+[INFO] [1795628045.594562047] [rosbag2_recorder]: Subscribed to topic '/vehicle/odometry'
+[INFO] [1795628045.595921915] [rosbag2_recorder]: Subscribed to topic '/infra/roadwork/beacon'
+[INFO] [1795628045.597468673] [rosbag2_recorder]: Subscribed to topic '/lidar/scan'
+[INFO] [1795628045.598339052] [rosbag2_recorder]: Subscribed to topic '/radar/detections'
+[INFO] [1795628045.599679740] [rosbag2_recorder]: Subscribed to topic '/challenge/metrics'
+[INFO] [1795628045.600972019] [rosbag2_recorder]: Subscribed to topic '/solution/scene'
+[INFO] [1795628045.688853555] [rosbag2_recorder]: Subscribed to topic '/solution/path'
+[INFO] [1795628045.689658894] [rosbag2_recorder]: Subscribed to topic '/solution/plan'
+[INFO] [1795628045.690298743] [rosbag2_recorder]: Subscribed to topic '/solution/state'
+[INFO] [1795628046.024198665] [rosbag2_recorder]: Subscribed to topic '/vehicle/command'
+[INFO] [1795628046.024218025] [rosbag2_recorder]: All requested topics are subscribed. Stopping discovery...
+[INFO] [1795628046.024223545] [rosbag2_recorder]: Topics discovery stopped.
+[INFO] [1795628074.903554151] [rosbag2_recorder]: Pausing recording.
+[INFO] [1795628074.904323299] [rosbag2_cpp]: Writing remaining messages from cache to the bag. It may take a while
+[INFO] [1795628074.907767445] [rosbag2_recorder]: Recording stopped
+[INFO] [1795628074.909106903] [rosbag2_recorder]: Event publisher thread: Exited
