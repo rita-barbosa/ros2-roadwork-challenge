@@ -1,6 +1,7 @@
 // Perception building blocks used by sense_node (ROS-free): panel state and
 // beacon geometry cache.
 #pragma once
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -152,6 +153,88 @@ class BeaconMonitor {
   bool have_ = false;
   int rejected_ = 0;
 };
+
+// ---------------------------------------------------------------------------
+// LiDAR: projection into the map frame and clustering
+// ---------------------------------------------------------------------------
+// Each finite return r_i at beam angle a_i (base_link) is projected with the
+// ego pose associated with the scan stamp: p = (x + r cos(yaw + a_i),
+// y + r sin(yaw + a_i)). Returns at the published road edges (|y| >= 3.5 -
+// edge_margin) are free-space boundaries, not obstacles, and are removed.
+// The remaining returns are grouped in beam order: a new cluster starts when
+// two consecutive object returns are more than cluster_gap apart or separated
+// by more than max_ray_gap beams (wrap-around at +/-pi is merged).
+struct LidarConfig {
+  double edge_margin = 0.25;  // m
+  double cluster_gap = 0.8;   // m
+  int max_ray_gap = 2;        // beams
+};
+
+struct LidarScanIn {
+  double stamp = -1.0, angle_min = 0.0, angle_increment = 0.0, range_min = 0.0, range_max = 0.0;
+  std::vector<float> ranges;
+};
+
+struct LidarResult {
+  std::vector<Point2> points;  // object returns (map frame)
+  std::vector<Cluster> clusters;
+  int returns = 0, malformed = 0;
+};
+
+// Validates the scan layout (false + why on failure) and projects/clusters it.
+inline bool process_scan(const LidarScanIn& s, const EgoState& pose, LidarResult* out, std::string* why = nullptr,
+                         const LidarConfig& c = LidarConfig{}) {
+  auto fail = [&](const char* r) { if (why) *why = r; return false; };
+  const size_t n = s.ranges.size();
+  if (n < 2) return fail("empty scan");
+  if (!finite_all({s.angle_min, s.angle_increment, s.range_min, s.range_max}) || s.angle_increment <= 0.0 ||
+      s.range_min < 0.0 || s.range_max <= s.range_min)
+    return fail("malformed scan parameters");
+  if (s.angle_min < -kPi - 1e-3 || s.angle_min + s.angle_increment * static_cast<double>(n - 1) > kPi + 1e-3)
+    return fail("scan covers more than one revolution");
+  *out = LidarResult{};
+  struct Hit { Point2 p; double r; size_t i; };
+  std::vector<Hit> hits;
+  for (size_t i = 0; i < n; ++i) {
+    const double r = s.ranges[i];
+    if (std::isnan(r) || (std::isinf(r) && r < 0)) { ++out->malformed; continue; }
+    if (!std::isfinite(r) || r < s.range_min || r > s.range_max) continue;  // no return
+    ++out->returns;
+    const double th = pose.yaw + s.angle_min + s.angle_increment * static_cast<double>(i);
+    const Point2 p{pose.x + r * std::cos(th), pose.y + r * std::sin(th)};
+    if (std::abs(p.y) >= kRoadHalfWidth - c.edge_margin) continue;  // road edge
+    hits.push_back({p, r, i});
+    out->points.push_back(p);
+  }
+  // Cluster in beam order.
+  std::vector<std::vector<size_t>> groups;
+  for (size_t k = 0; k < hits.size(); ++k) {
+    const bool join = k > 0 && hits[k].i - hits[k - 1].i <= static_cast<size_t>(c.max_ray_gap) + 1 &&
+                      std::hypot(hits[k].p.x - hits[k - 1].p.x, hits[k].p.y - hits[k - 1].p.y) <= c.cluster_gap;
+    if (!join) groups.emplace_back();
+    groups.back().push_back(k);
+  }
+  if (groups.size() > 1) {  // wrap-around between the last and first beams
+    const Hit& a = hits[groups.back().back()];
+    const Hit& b = hits[groups.front().front()];
+    if (b.i + n - a.i <= static_cast<size_t>(c.max_ray_gap) + 1 &&
+        std::hypot(a.p.x - b.p.x, a.p.y - b.p.y) <= c.cluster_gap) {
+      groups.front().insert(groups.front().begin(), groups.back().begin(), groups.back().end());
+      groups.pop_back();
+    }
+  }
+  for (const auto& g : groups) {
+    Cluster cl;
+    cl.n = static_cast<int>(g.size());
+    cl.range_min = std::numeric_limits<double>::infinity();
+    for (size_t k : g) { cl.x += hits[k].p.x; cl.y += hits[k].p.y; cl.range_min = std::min(cl.range_min, hits[k].r); }
+    cl.x /= cl.n;
+    cl.y /= cl.n;
+    for (size_t k : g) cl.radius = std::max(cl.radius, std::hypot(hits[k].p.x - cl.x, hits[k].p.y - cl.y));
+    out->clusters.push_back(cl);
+  }
+  return true;
+}
 
 // ---------------------------------------------------------------------------
 // Radar: ego-motion compensation and moving-object tracking

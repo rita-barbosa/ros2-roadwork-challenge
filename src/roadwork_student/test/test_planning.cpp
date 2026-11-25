@@ -43,6 +43,7 @@ static SceneData scene(double now, double x, double v, Panel panel) {
   s.geometry_known = true; s.beacon_stamp = now; s.beacon_valid_for = 1.2;
   s.geometry = geom(0);
   s.radar_stamp = now;  // fresh radar, no moving traffic
+  s.lidar_stamp = now;  // fresh LiDAR, empty corridor
   return s;
 }
 
@@ -243,6 +244,107 @@ static void test_information_loss() {
   }
 }
 
+// Points on a circle (as LiDAR returns would lie on it).
+static std::vector<Point2> circle_points(double cx, double cy, double r, int n = 72) {
+  std::vector<Point2> v;
+  for (int k = 0; k < n; ++k) v.push_back({cx + r * std::cos(2 * kPi * k / n), cy + r * std::sin(2 * kPi * k / n)});
+  return v;
+}
+
+static void test_obstacles() {
+  {  // The works themselves never block the corridor of the bypass path.
+    Planner pl;
+    for (double x : {5.0, 20.0, 30.0, 38.0, 44.0, 48.0, 55.0}) {
+      SceneData s = scene(x, x, 3, Panel::Go);
+      s.ego.y = pl.path().valid() ? pl.path().y_at(x) : kOwnLaneY;
+      s.obstacle_points = circle_points(43, -1.75, 1.0);
+      const auto w2 = circle_points(47, -1.75, 1.0);
+      s.obstacle_points.insert(s.obstacle_points.end(), w2.begin(), w2.end());
+      const PlanOutput o = pl.step(s, x);
+      CHECK(!o.blocked);
+    }
+  }
+  Planner pl;
+  pl.step(scene(1, 5, 0, Panel::Go), 1);
+  pl.step(scene(2, 22.5, 3.0, Panel::Go), 2);
+  CHECK(pl.go_latched());
+  const auto obstacle = circle_points(57, 1.75, 0.65);
+  {  // Obstacle appears ~12 m ahead: detected, but braking only starts when the stop profile binds.
+    SceneData s = scene(3, 45, 3.4, Panel::Go);
+    s.ego.y = pl.path().y_at(45);
+    s.obstacle_points = obstacle;
+    const PlanOutput o = pl.step(s, 3);
+    CHECK(o.blocked && o.block_dist > 10.0 && o.block_dist < 12.0);
+    CHECK(o.state == State::Bypass);
+  }
+  {  // Closer: BLOCKED, braking.
+    SceneData s = scene(4, 50.5, 3.3, Panel::Go);
+    s.ego.y = pl.path().y_at(50.5);
+    s.obstacle_points = obstacle;
+    const PlanOutput o = pl.step(s, 4);
+    CHECK(o.state == State::Blocked && o.speed < 3.3);
+  }
+  double stop_x = 0;
+  {  // At the standoff: hold.
+    SceneData probe = scene(5, 50.5, 0, Panel::Go);
+    probe.ego.y = pl.path().y_at(50.5);
+    probe.obstacle_points = obstacle;
+    const PlanOutput p = pl.step(probe, 5);
+    stop_x = 50.5 + p.block_dist - pl.config().obstacle_standoff;
+    SceneData s = scene(5.05, stop_x, 0, Panel::Go);
+    s.ego.y = pl.path().y_at(stop_x);
+    s.obstacle_points = obstacle;
+    const PlanOutput o = pl.step(s, 5.05);
+    CHECK(o.state == State::Blocked && o.speed == 0.0 && o.hold);
+    // Disc-to-disc clearance to the obstacle when stopped.
+    CHECK(std::hypot(57 - stop_x, 1.75 - pl.path().y_at(stop_x)) - 0.65 - kEgoRadius > 1.0);
+  }
+  {  // Corridor clear: still held for obstacle_clear_time, then resume.
+    SceneData s = scene(5.15, stop_x, 0, Panel::Go);
+    s.ego.y = pl.path().y_at(stop_x);
+    CHECK(pl.step(s, 5.15).state == State::Blocked);  // 0.10 s after the last blocking scan
+    s.stamp = s.ego.stamp = s.lidar_stamp = s.radar_stamp = s.beacon_stamp = s.camera_stamp = 5.3;
+    CHECK(pl.step(s, 5.3).state == State::Blocked);   // 0.25 s
+    s.stamp = s.ego.stamp = s.lidar_stamp = s.radar_stamp = s.beacon_stamp = s.camera_stamp = 5.4;
+    const PlanOutput o = pl.step(s, 5.4);              // 0.35 s > obstacle_clear_time
+    CHECK(o.state == State::Return && o.speed > 0.0 && !o.blocked);
+  }
+  {  // LiDAR stale after commitment: no current obstacle evidence -> brake (WAIT_INFO).
+    SceneData s = scene(7, 58, 3.0, Panel::Go);
+    s.ego.y = pl.path().y_at(58);
+    s.lidar_stamp = 6.5;
+    const PlanOutput o = pl.step(s, 7);
+    CHECK(o.state == State::WaitInfo && o.speed == 0.0);
+    s.lidar_stamp = 7;
+    CHECK(pl.step(s, 7).speed > 0.0);  // recovers with fresh evidence
+  }
+  {  // Before entry: an obstacle on the bypass withholds permission (BLOCKED at the stop line).
+    Planner p2;
+    const double sx = 25 - kEgoRadius - p2.config().stop_distance;
+    SceneData s = scene(1, sx, 0, Panel::Go);
+    s.obstacle_points = circle_points(36, 1.75, 0.65);
+    const PlanOutput o = p2.step(s, 1);
+    CHECK(o.state == State::Blocked && o.hold && !p2.go_latched());
+    // ... and a stale LiDAR withholds it as missing information.
+    SceneData s2 = scene(2, sx, 0, Panel::Go);
+    s2.lidar_stamp = 1.5;
+    CHECK(p2.step(s2, 2).state == State::WaitInfo);
+    CHECK(p2.step(scene(3, sx, 0, Panel::Go), 3).state == State::Approach);
+  }
+  {  // Ablation switch: the corridor is not checked.
+    PlannerConfig c;
+    c.use_obstacle_check = false;
+    Planner p3(c);
+    SceneData s = scene(1, 50.5, 3.3, Panel::Go);
+    p3.step(scene(0.5, 22.5, 3.0, Panel::Go), 0.5);
+    s.ego.y = p3.path().y_at(50.5);
+    s.obstacle_points = obstacle;
+    s.lidar_stamp = -1;
+    const PlanOutput o = p3.step(s, 1);
+    CHECK(!o.blocked && o.speed > 3.0);
+  }
+}
+
 static void test_guard() {
   CommandGuard g;
   PlanInput p;
@@ -272,6 +374,7 @@ int main() {
   test_decisions();
   test_traffic_gap();
   test_information_loss();
+  test_obstacles();
   test_guard();
   return TEST_SUMMARY("test_planning");
 }

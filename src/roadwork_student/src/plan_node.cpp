@@ -1,6 +1,7 @@
 // plan_node: subscribes to /solution/scene, stops before the entry line until
-// entry is permitted (confirmed GO and a safe gap in opposing traffic), plans the
-// left bypass and speed, computes pure-pursuit steering and publishes
+// entry is permitted (confirmed GO, fresh beacon, a safe gap in opposing
+// traffic and a clear LiDAR corridor), plans the left bypass and speed, brakes
+// for obstacles in the corridor, computes pure-pursuit steering and publishes
 // /solution/plan (internal), /solution/state (JSON String) and /solution/path.
 #include <chrono>
 #include <cstdio>
@@ -59,6 +60,18 @@ static rws::SceneData from_msg(const SceneMsg& m) {
     if (!rws::finite_all({t.stamp, t.x, t.y, t.vx})) continue;
     s.tracks.push_back(t);
   }
+  s.lidar_stamp = to_sec(m.lidar_stamp) > 0 ? to_sec(m.lidar_stamp) : -1.0;
+  s.lidar_pose_dt = m.lidar_pose_dt;
+  s.lidar_returns = static_cast<int>(m.lidar_returns);
+  s.lidar_rejected = static_cast<int>(m.lidar_rejected);
+  if (m.obstacle_x.size() != m.obstacle_y.size()) {
+    s.lidar_stamp = -1.0;  // malformed evidence is treated as missing evidence
+  } else {
+    for (size_t k = 0; k < m.obstacle_x.size(); ++k)
+      if (std::isfinite(m.obstacle_x[k]) && std::isfinite(m.obstacle_y[k]))
+        s.obstacle_points.push_back({m.obstacle_x[k], m.obstacle_y[k]});
+  }
+  for (const auto& om : m.obstacles) s.clusters.push_back({om.x, om.y, om.radius, om.range_min, static_cast<int>(om.n_points)});
   return s;
 }
 
@@ -82,6 +95,13 @@ class PlanNode : public rclcpp::Node {
     c.gap_a_nominal = declare_parameter("gap_a_nominal", c.gap_a_nominal);
     c.traffic_radius = declare_parameter("traffic_radius", c.traffic_radius);
     c.gap_margin = declare_parameter("gap_margin", c.gap_margin);
+    c.use_obstacle_check = declare_parameter("use_obstacle_check", c.use_obstacle_check);
+    c.lidar_timeout = declare_parameter("lidar_timeout", c.lidar_timeout);
+    c.corridor_half_width = declare_parameter("corridor_half_width", c.corridor_half_width);
+    c.obstacle_horizon = declare_parameter("obstacle_horizon", c.obstacle_horizon);
+    c.obstacle_standoff = declare_parameter("obstacle_standoff", c.obstacle_standoff);
+    c.obstacle_decel = declare_parameter("obstacle_decel", c.obstacle_decel);
+    c.obstacle_clear_time = declare_parameter("obstacle_clear_time", c.obstacle_clear_time);
     cfg_ = c;
     planner_ = std::make_unique<rws::Planner>(c);
     scene_timeout_ = c.scene_timeout;
@@ -101,8 +121,10 @@ class PlanNode : public rclcpp::Node {
                 nullptr, now);
     });
     path_timer_ = create_timer(1s, [this]() { publish_path(); });
-    RCLCPP_INFO(get_logger(), "plan_node ready: bypass_y=%.2f cruise=%.2f m/s stop_distance=%.2f m traffic_gap=%s",
-                c.path.bypass_y, c.speed.cruise, c.stop_distance, c.use_traffic_gap ? "on" : "OFF (ablation)");
+    RCLCPP_INFO(get_logger(),
+                "plan_node ready: bypass_y=%.2f cruise=%.2f m/s stop_distance=%.2f m traffic_gap=%s obstacle_check=%s",
+                c.path.bypass_y, c.speed.cruise, c.stop_distance, c.use_traffic_gap ? "on" : "OFF (ablation)",
+                c.use_obstacle_check ? "on" : "OFF (ablation)");
   }
 
  private:
@@ -116,6 +138,7 @@ class PlanNode : public rclcpp::Node {
     logged_go_ = false;
     last_gap_ok_ = true;
     last_beacon_fresh_ = false;
+    last_blocked_ = false;
   }
 
   void on_scene(const SceneMsg& m) {
@@ -159,6 +182,13 @@ class PlanNode : public rclcpp::Node {
                        o.go ? ": committed, continuing on cached geometry" : ": no entry until a fresh beacon");
       last_beacon_fresh_ = o.beacon_fresh;
     }
+    if (s && o.blocked != last_blocked_) {
+      if (o.blocked)
+        RCLCPP_INFO(get_logger(), "corridor BLOCKED at t=%.2f x=%.2f v=%.2f: return at x=%.2f y=%.2f, %.2f m ahead", now,
+                    s->ego.x, s->ego.v, o.block.x, o.block.y, o.block_dist);
+      else RCLCPP_INFO(get_logger(), "corridor CLEAR at t=%.2f x=%.2f", now, s->ego.x);
+      last_blocked_ = o.blocked;
+    }
     if (s && o.gap_ok != last_gap_ok_) {
       RCLCPP_INFO(get_logger(), "traffic gap %s at t=%.2f x=%.2f: %s", o.gap_ok ? "SAFE" : "UNSAFE", now, s->ego.x,
                   o.gap_reason.c_str());
@@ -177,6 +207,8 @@ class PlanNode : public rclcpp::Node {
         "\"gap_ok\":%s,\"radar_fresh\":%s,\"n_tracks\":%d,\"conflict_id\":%d,\"conflict_x\":%.2f,"
         "\"conflict_vx\":%.2f,\"t_clear\":%.2f,\"radar_age\":%.3f,"
         "\"beacon_fresh\":%s,\"beacon_age\":%.3f,\"camera_age\":%.3f,"
+        "\"lidar_fresh\":%s,\"lidar_age\":%.3f,\"n_obstacle_points\":%d,\"blocked\":%s,\"block_x\":%.2f,"
+        "\"block_y\":%.2f,\"block_dist\":%.2f,\"v_obs\":%.3f,"
         "\"scene_age\":%.3f,\"odom_age\":%.3f}",
         now, rws::to_string(o.state), rws_ros::json_escape(o.reason).c_str(), o.go ? "true" : "false",
         s ? rws::to_string(s->panel_state) : "UNKNOWN", s ? s->panel_go_count : 0, s ? s->ego.x : 0.0,
@@ -184,6 +216,8 @@ class PlanNode : public rclcpp::Node {
         o.v_goal, cap(o.v_stop), cap(o.v_yield), o.d_line, o.gap_ok ? "true" : "false",
         o.radar_fresh ? "true" : "false", o.n_tracks, o.conflict_id, o.conflict_x, o.conflict_vx, o.t_clear,
         s ? age(s->radar_stamp) : -1.0, o.beacon_fresh ? "true" : "false", o.beacon_age, o.camera_age,
+        o.lidar_fresh ? "true" : "false", o.lidar_age, o.n_obstacle_points, o.blocked ? "true" : "false", o.block.x,
+        o.block.y, o.block_dist, cap(o.v_obs),
         s ? age(s->stamp) : -1.0, s ? age(s->ego.stamp) : -1.0);
     std_msgs::msg::String st;
     st.data = buf;
@@ -220,7 +254,7 @@ class PlanNode : public rclcpp::Node {
   double scene_timeout_ = 0.25, last_scene_rx_ = -1.0;
   int published_path_version_ = 0;
   rws::State last_state_ = rws::State::Init;
-  bool logged_go_ = false, last_gap_ok_ = true, last_beacon_fresh_ = false;
+  bool logged_go_ = false, last_gap_ok_ = true, last_beacon_fresh_ = false, last_blocked_ = false;
   rclcpp::Subscription<SceneMsg>::SharedPtr scene_sub_;
   rclcpp::Publisher<PlanMsg>::SharedPtr plan_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr state_pub_;

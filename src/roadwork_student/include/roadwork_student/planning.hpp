@@ -49,14 +49,14 @@ struct PlannerConfig {
   // collision disc stop_distance before the beacon entry line.
   double stop_distance = 1.0;      // m, gap between vehicle front and entry line when stopped
   double stop_decel = 1.0;         // m/s^2, deceleration of the stop-line speed profile
-  // Opposing traffic (radar tracks). The bypass occupies the opposing lane on
-  // [opp_lo, opp_hi] (path x where the ego disc crosses y = 0). Entering is only
-  // allowed if no confirmed track can reach that interval (widened by the
-  // combined radii and a margin) before the ego has left it plus gap_time.
   // Information freshness before entry. A beacon is fresh for min(its own
   // valid_for, beacon_max_age); cached geometry is never permission to enter.
   double beacon_max_age = 1.2;     // s (beacon validity interval is 1.2 s)
   double camera_timeout = 0.30;    // s, only used to explain WHY the panel is UNKNOWN
+  // Opposing traffic (radar tracks). The bypass occupies the opposing lane on
+  // [opp_lo, opp_hi] (path x where the ego disc crosses y = 0). Entering is only
+  // allowed if no confirmed track can reach that interval (widened by the
+  // combined radii and a margin) before the ego has left it plus gap_time.
   bool use_traffic_gap = true;     // ablation switch
   double radar_timeout = 0.35;     // s, radar is 10 Hz
   double gap_time = 3.0;           // s, safety margin on top of the ego clearing time
@@ -66,6 +66,20 @@ struct PlannerConfig {
   double gap_margin = 1.0;         // m, extra longitudinal margin around the interval
   double traffic_min_y = -1.0;     // m, only tracks with y above this can occupy the opposing lane
   double yield_before = 0.5;       // m, committed ego yields with its reference this far before opp_lo
+  // Obstacles (LiDAR returns in the planned corridor). A return closer than
+  // corridor_half_width to the reference path, ahead of the ego within
+  // obstacle_horizon, blocks the path at its arc length s_block. The speed is
+  // capped so the ego stops with its reference obstacle_standoff before
+  // s_block, braking at obstacle_decel (< 3 m/s^2) after the control delay.
+  // Before entry the corridor must be clear (current scan) to grant permission;
+  // after entry a stale LiDAR means no current obstacle evidence -> stop.
+  bool use_obstacle_check = true;  // ablation switch
+  double lidar_timeout = 0.35;     // s, LiDAR is 10 Hz
+  double corridor_half_width = kEgoRadius + 0.4;  // m (works surfaces stay >= 1.8 m from the path)
+  double obstacle_horizon = 40.0;  // m of path ahead (LiDAR range)
+  double obstacle_standoff = 2.5;  // m, ego reference to the first blocking return when stopped
+  double obstacle_decel = 2.0;     // m/s^2
+  double obstacle_clear_time = 0.3;  // s the corridor must stay clear before resuming (3 scans)
 };
 
 // ---------------------------------------------------------------------------
@@ -231,10 +245,15 @@ inline double pure_pursuit(const ReferencePath& path, size_t nearest, const EgoS
 // camera and the beacon are no longer needed, so losing them does not stop the
 // manoeuvre. A conflicting track (or stale radar) still makes the ego wait
 // before the opposing-lane interval if it can stop there.
+// BLOCKED (any phase): LiDAR returns inside the planned corridor; the ego
+// brakes to a standoff before them and resumes once the corridor has been
+// clear for obstacle_clear_time. Before entry a blocked corridor (or a stale
+// LiDAR -> WAIT_INFO) withholds permission; after entry a stale LiDAR brakes
+// the vehicle (WAIT_INFO) because obstacle decisions need current evidence.
 // SAFE_STOP: odometry or scene missing/stale (braking).
 enum class State : uint8_t {
   Init = 0, WaitGo = 1, Approach = 2, Bypass = 3, Return = 4, Final = 5, Goal = 6, SafeStop = 7, Yield = 8,
-  WaitInfo = 9
+  WaitInfo = 9, Blocked = 10
 };
 
 inline const char* to_string(State s) {
@@ -248,6 +267,7 @@ inline const char* to_string(State s) {
     case State::Goal: return "GOAL";
     case State::Yield: return "YIELD";
     case State::WaitInfo: return "WAIT_INFO";
+    case State::Blocked: return "BLOCKED";
     default: return "SAFE_STOP";
   }
 }
@@ -274,6 +294,13 @@ struct PlanOutput {
   int conflict_id = -1;        // conflicting track (-1 = none)
   double conflict_x = 0, conflict_vx = 0;
   int n_tracks = 0;
+  // obstacles (LiDAR corridor)
+  bool lidar_fresh = false, blocked = false;
+  double lidar_age = -1;
+  double s_block = -1, block_dist = -1;  // path arc length of the first blocking return; distance ahead of the ego
+  Point2 block;                          // that return (map)
+  double v_obs = std::numeric_limits<double>::infinity();  // obstacle speed cap (inf = none)
+  int n_obstacle_points = 0;
   Point2 target;
 };
 
@@ -328,6 +355,20 @@ class Planner {
     if (!path_.valid()) return stop(o, State::Init, "waiting for beacon geometry");
     const Geometry& g = geom_;
 
+    // Projection on the reference path.
+    const auto& pts = path_.points();
+    const size_t i = path_.nearest(e.x, e.y);
+    const PathPoint& pn = pts[i];
+    o.path_s = pn.s;
+    o.cte = -std::sin(pn.yaw) * (e.x - pn.x) + std::cos(pn.yaw) * (e.y - pn.y);
+
+    // Obstacle evidence: LiDAR returns inside the corridor of the path ahead.
+    o.lidar_fresh = is_fresh(now, sc.lidar_stamp, cfg_.lidar_timeout);
+    o.lidar_age = sc.lidar_stamp >= 0 ? now - sc.lidar_stamp : -1.0;
+    o.n_obstacle_points = static_cast<int>(sc.obstacle_points.size());
+    corridor_check(sc, now, pn.s, &o);
+    const bool corridor_clear = !cfg_.use_obstacle_check || (o.lidar_fresh && !o.blocked);
+
     // Entry permission: a confirmed GO, re-checked every cycle until the vehicle
     // reaches the point where it could no longer stop before the entry line; GO is
     // latched (commitment) there. Without permission, the stop-line profile below
@@ -347,7 +388,7 @@ class Planner {
     o.conflict_x = gap.conflict_x;
     o.conflict_vx = gap.conflict_vx;
     o.n_tracks = gap.n_tracks;
-    const bool permission = panel_go && o.beacon_fresh && gap.ok;
+    const bool permission = panel_go && o.beacon_fresh && gap.ok && corridor_clear;
     if (!go_ && permission && o.d_line <= brake_distance(v)) go_ = true;
     o.go = go_;
     const bool wait = !go_ && !permission;
@@ -362,12 +403,11 @@ class Planner {
       }
     }
 
-    // Projection on the reference path.
-    const auto& pts = path_.points();
-    const size_t i = path_.nearest(e.x, e.y);
-    const PathPoint& pn = pts[i];
-    o.path_s = pn.s;
-    o.cte = -std::sin(pn.yaw) * (e.x - pn.x) + std::cos(pn.yaw) * (e.y - pn.y);
+    // Obstacle speed cap (all phases). After commitment, a stale LiDAR leaves no
+    // current obstacle evidence: brake and wait for it.
+    const bool lidar_lost = cfg_.use_obstacle_check && go_ && !o.lidar_fresh;
+    if (lidar_lost) o.v_obs = 0.0;
+    else if (o.blocked) o.v_obs = stop_profile(o.block_dist - cfg_.obstacle_standoff, v, cfg_.obstacle_decel);
 
     // Speed: minimum of path profile, goal profile and limit.
     o.v_path = profile_speed(i, v);
@@ -378,7 +418,8 @@ class Planner {
       const double d = cfg_.goal_x - e.x - v * cfg_.control_delay;
       o.v_goal = std::max(cfg_.creep_speed, std::sqrt(2.0 * cfg_.goal_decel * std::max(0.0, d)));
     }
-    target = std::min({target, o.v_goal, o.v_stop, o.v_yield});
+    const double v_free = std::min(target, o.v_goal);  // speed without stop/yield/obstacle caps
+    target = std::min({target, o.v_goal, o.v_stop, o.v_yield, o.v_obs});
     o.speed_limit = std::min(kSpeedLimit, g.speed_limit) - cfg_.speed_margin;
     target = clampd(target, 0.0, o.speed_limit);
 
@@ -406,15 +447,31 @@ class Planner {
       } else if (!gap.radar_fresh) {
         o.state = State::WaitInfo;
         o.reason = "GO, but " + gap.reason + at;
-      } else {
+      } else if (cfg_.use_obstacle_check && !o.lidar_fresh) {
+        o.state = State::WaitInfo;
+        o.reason = std::string("GO, but LiDAR stale: no current obstacle evidence") + at;
+      } else if (!gap.ok) {
         o.state = State::Yield;
         o.reason = "GO, but " + gap.reason + at;
+      } else {
+        o.state = State::Blocked;
+        o.reason = "GO, but " + block_text(o) + at;
       }
       return o;
     }
     if (yielding) {
       o.state = gap.radar_fresh ? State::Yield : State::WaitInfo;
       o.reason = "committed, but " + gap.reason + (o.hold ? ": holding before opposing lane" : ": yielding before opposing lane");
+      return o;
+    }
+    if (lidar_lost) {
+      o.state = State::WaitInfo;
+      o.reason = "LiDAR stale after commitment: braking until obstacle evidence returns";
+      return o;
+    }
+    if (o.blocked && o.v_obs < v_free - 1e-6) {
+      o.state = State::Blocked;
+      o.reason = block_text(o) + (o.hold ? ": stopped, waiting for the corridor to clear" : ": braking");
       return o;
     }
     if (e.x + kEgoRadius < g.entry_x) { o.state = State::Approach; o.reason = "GO confirmed; approaching work zone"; }
@@ -470,9 +527,50 @@ class Planner {
   }
 
   // Speed cap that brings the vehicle to rest after distance d (creeping at the end).
-  double stop_profile(double d, double v) const {
+  double stop_profile(double d, double v, double decel = -1.0) const {
     if (d <= 0.0) return 0.0;
-    return std::max(cfg_.creep_speed, std::sqrt(2.0 * cfg_.stop_decel * std::max(0.0, d - v * cfg_.control_delay)));
+    const double a = decel > 0.0 ? decel : cfg_.stop_decel;
+    return std::max(cfg_.creep_speed, std::sqrt(2.0 * a * std::max(0.0, d - v * cfg_.control_delay)));
+  }
+
+  static std::string block_text(const PlanOutput& o) {
+    char buf[128];
+    std::snprintf(buf, sizeof(buf), "obstacle on the planned path at x=%.1f y=%.1f (%.1f m ahead)", o.block.x,
+                  o.block.y, o.block_dist);
+    return buf;
+  }
+
+  // Corridor check on the LiDAR returns of the newest scan. Each return is
+  // projected on the nearest path sample; it blocks the path if it lies within
+  // corridor_half_width of the path and ahead of the ego (0 < s - s_ego <=
+  // obstacle_horizon). The first blocking return defines s_block. A block is
+  // held for obstacle_clear_time after the corridor looks clear, so a single
+  // empty scan cannot release the vehicle. Returns are in the map frame, so a
+  // static obstacle stays valid while the ego moves; a moving one is up to one
+  // scan period (+ transport) old, which the standoff absorbs.
+  void corridor_check(const SceneData& sc, double now, double s_ego, PlanOutput* o) {
+    if (!cfg_.use_obstacle_check || !is_fresh(now, sc.lidar_stamp, cfg_.lidar_timeout)) return;
+    const auto& pts = path_.points();
+    double best = std::numeric_limits<double>::infinity();
+    Point2 bp;
+    for (const auto& q : sc.obstacle_points) {
+      const size_t j = path_.nearest(q.x, q.y);
+      const double ds = pts[j].s - s_ego;
+      if (ds <= 0.0 || ds > cfg_.obstacle_horizon) continue;
+      if (std::hypot(q.x - pts[j].x, q.y - pts[j].y) >= cfg_.corridor_half_width) continue;
+      if (pts[j].s < best) { best = pts[j].s; bp = q; }
+    }
+    if (std::isfinite(best)) {
+      block_s_ = best;
+      block_pt_ = bp;
+      block_time_ = now;
+    } else if (!(block_time_ >= 0.0 && now - block_time_ < cfg_.obstacle_clear_time && block_s_ > s_ego)) {
+      return;
+    }
+    o->blocked = true;
+    o->s_block = block_s_;
+    o->block = block_pt_;
+    o->block_dist = block_s_ - s_ego;
   }
 
   // Conservative time for the ego (at speed v) to cover distance d: accelerate
@@ -539,6 +637,8 @@ class Planner {
   int path_version_ = 0;
   bool go_ = false, goal_reached_ = false;
   double last_steer_ = 0.0;
+  double block_s_ = -1.0, block_time_ = -1.0;  // last blocking return (hysteresis)
+  Point2 block_pt_;
 };
 
 }  // namespace rws

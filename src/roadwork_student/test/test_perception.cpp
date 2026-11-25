@@ -1,6 +1,7 @@
 // Unit tests for perception building blocks. The panel test also prints a
 // confusion matrix on independently generated samples (own RNG and seeds, not
 // the simulator's), used as held-out recognition evidence in the report.
+#include <limits>
 #include <random>
 
 #include "check.hpp"
@@ -224,6 +225,96 @@ static void test_sense_radar() {
   CHECK(!core.on_radar(1.40, {}, 1.40));  // 0.35 s from any odometry sample: rejected
 }
 
+// Independent 2D ray caster following the LiDAR contract (360 beams from -pi,
+// road edges at y = +/-3.5, circles), used to build synthetic scans.
+struct Circ { double x, y, r; };
+static LidarScanIn make_scan(double stamp, const EgoState& e, const std::vector<Circ>& objs) {
+  LidarScanIn s;
+  s.stamp = stamp; s.angle_min = -kPi; s.angle_increment = 2 * kPi / 360; s.range_min = 0.1; s.range_max = 40;
+  s.ranges.assign(360, std::numeric_limits<float>::infinity());
+  for (int i = 0; i < 360; ++i) {
+    const double a = e.yaw - kPi + 2 * kPi * i / 360.0, dx = std::cos(a), dy = std::sin(a);
+    double best = 40.0;
+    bool hit = false;
+    if (std::abs(dy) > 1e-9) {
+      const double t = ((dy > 0 ? 3.5 : -3.5) - e.y) / dy;
+      if (t > 0 && t < best) { best = t; hit = true; }
+    }
+    for (const auto& o : objs) {
+      const double ox = o.x - e.x, oy = o.y - e.y, p = ox * dx + oy * dy, disc = o.r * o.r - (ox * ox + oy * oy - p * p);
+      if (disc >= 0) {
+        const double t = p - std::sqrt(disc);
+        if (t > 0 && t < best) { best = t; hit = true; }
+      }
+    }
+    if (hit) s.ranges[i] = static_cast<float>(best);
+  }
+  return s;
+}
+
+static void test_lidar() {
+  EgoState e;
+  e.stamp = 2.0; e.x = 45; e.y = 1.25; e.v = 3;
+  {  // Road edges are removed; the works and a temporary obstacle form separate clusters.
+    LidarResult r;
+    const auto scan = make_scan(2.0, e, {{43, -1.75, 1.0}, {47, -1.75, 1.0}, {57, 1.75, 0.65}});
+    CHECK(process_scan(scan, e, &r));
+    CHECK(r.returns > 300);  // most beams hit an edge
+    for (const auto& p : r.points) CHECK(std::abs(p.y) < 3.25);
+    CHECK(r.clusters.size() == 3);
+    int near_obstacle = 0;
+    for (const auto& c : r.clusters) {
+      if (std::hypot(c.x - 57, c.y - 1.75) < 0.65 + 0.2) {
+        ++near_obstacle;
+        CHECK(c.n >= 4);
+        CHECK_NEAR(c.range_min, std::hypot(57 - 45, 0.5) - 0.65, 0.05);
+      }
+    }
+    CHECK(near_obstacle == 1);
+    // Every obstacle return lies on one of the circles (projection uses the pose).
+    for (const auto& p : r.points) {
+      const double d = std::min({std::abs(std::hypot(p.x - 43, p.y + 1.75) - 1.0),
+                                 std::abs(std::hypot(p.x - 47, p.y + 1.75) - 1.0),
+                                 std::abs(std::hypot(p.x - 57, p.y - 1.75) - 0.65)});
+      CHECK(d < 1e-3);
+    }
+  }
+  {  // Malformed scans and rays.
+    LidarResult r;
+    auto scan = make_scan(2.0, e, {});
+    scan.ranges[10] = std::nanf("");
+    scan.ranges[11] = -std::numeric_limits<float>::infinity();
+    CHECK(process_scan(scan, e, &r));
+    CHECK(r.malformed == 2);
+    auto bad = scan;
+    bad.angle_increment = 0;
+    CHECK(!process_scan(bad, e, &r));
+    bad = scan;
+    bad.angle_increment = 2 * kPi / 300;  // 360 beams would exceed one revolution
+    CHECK(!process_scan(bad, e, &r));
+    bad = scan;
+    bad.ranges.clear();
+    CHECK(!process_scan(bad, e, &r));
+  }
+  {  // SenseCore: the scan is projected with the pose of ITS stamp, not the newest one.
+    SenseCore core;
+    EgoState e0 = e, e1 = e;
+    e1.stamp = 2.05; e1.x = 45.15;
+    const auto scan = make_scan(2.0, e0, {{57, 1.75, 0.65}});
+    CHECK(!core.on_scan(scan, 2.05));  // no odometry yet
+    CHECK(core.on_odom(e0, 2.0));
+    CHECK(core.on_odom(e1, 2.05));
+    CHECK(core.on_scan(scan, 2.05));
+    const SceneData s = core.scene(2.05);
+    CHECK_NEAR(s.lidar_stamp, 2.0, 1e-12);
+    CHECK_NEAR(s.lidar_pose_dt, 0.0, 1e-12);
+    CHECK(!s.obstacle_points.empty());
+    for (const auto& p : s.obstacle_points) CHECK(std::abs(std::hypot(p.x - 57, p.y - 1.75) - 0.65) < 1e-3);
+    CHECK(!core.on_scan(scan, 2.1));  // repeated scan
+    CHECK(core.scene(2.1).lidar_rejected == 2);
+  }
+}
+
 int main() {
   test_panel_confusion();
   test_panel_malformed();
@@ -232,5 +323,6 @@ int main() {
   test_sense_core();
   test_tracker();
   test_sense_radar();
+  test_lidar();
   return TEST_SUMMARY("test_perception");
 }

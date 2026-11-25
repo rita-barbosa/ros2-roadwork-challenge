@@ -45,3 +45,12 @@ uint32 radar_detections          # valid detections in the newest scan
 uint32 radar_moving              # of which moving after ego-motion compensation
 uint32 radar_rejected            # cumulative rejected scans / malformed detections
 roadwork_student_interfaces/Track[] tracks
+
+# ---- LiDAR (/lidar/scan): obstacle evidence for the corridor check ----
+builtin_interfaces/Time lidar_stamp   # acquisition stamp of the newest accepted scan (0 = none)
+float32 lidar_pose_dt            # |scan stamp - stamp of the odometry sample used to project it| (s)
+uint32 lidar_returns             # finite returns in the newest scan (road edges included)
+uint32 lidar_rejected            # cumulative rejected scans / malformed rays
+float32[] obstacle_x             # map-frame returns of that scan, road-edge returns removed
+float32[] obstacle_y
+roadwork_student_interfaces/Obstacle[] obstacles   # clusters of the same returns

@@ -24,6 +24,7 @@ struct SenseConfig {
   double odom_history = 2.0;   // s of odometry kept for association
   PanelClassifierConfig panel;
   TrackerConfig tracker;
+  LidarConfig lidar;
 };
 
 class SenseCore {
@@ -60,6 +61,26 @@ class SenseCore {
     p.stamp = t;
     *out = p;
     if (err) *err = bd;
+    return true;
+  }
+
+  // LiDAR scan: validated, projected with the pose associated with its stamp,
+  // road-edge returns removed, clustered. A rejected scan leaves the previous
+  // evidence in place with its OLD stamp, so Plan sees it age.
+  bool on_scan(const LidarScanIn& scan, double now, std::string* why = nullptr) {
+    if (!std::isfinite(scan.stamp) || scan.stamp < 0 || is_future(now, scan.stamp))
+      return reject(&lidar_rejected_, why, "invalid/future scan stamp");
+    if (lidar_stamp_ >= 0 && scan.stamp <= lidar_stamp_) return reject(&lidar_rejected_, why, "repeated/out-of-order scan");
+    EgoState pose;
+    double err = 0;
+    if (!pose_at(scan.stamp, &pose, &err)) return reject(&lidar_rejected_, why, "no odometry near the scan stamp");
+    LidarResult r;
+    std::string w;
+    if (!process_scan(scan, pose, &r, &w, cfg_.lidar)) return reject(&lidar_rejected_, why, w);
+    lidar_rejected_ += r.malformed;
+    lidar_ = std::move(r);
+    lidar_stamp_ = scan.stamp;
+    lidar_pose_dt_ = err;
     return true;
   }
 
@@ -132,6 +153,13 @@ class SenseCore {
     s.radar_moving = radar_moving_;
     s.radar_rejected = radar_rejected_;
     s.tracks = tracker_.tracks();
+
+    s.lidar_stamp = lidar_stamp_;
+    s.lidar_pose_dt = lidar_pose_dt_;
+    s.lidar_returns = lidar_.returns;
+    s.lidar_rejected = lidar_rejected_;
+    s.obstacle_points = lidar_.points;
+    s.clusters = lidar_.clusters;
     return s;
   }
 
@@ -154,6 +182,9 @@ class SenseCore {
   TrafficTracker tracker_;
   double radar_stamp_ = -1.0, radar_pose_dt_ = 0.0;
   int radar_detections_ = 0, radar_moving_ = 0, radar_rejected_ = 0;
+  LidarResult lidar_;
+  double lidar_stamp_ = -1.0, lidar_pose_dt_ = 0.0;
+  int lidar_rejected_ = 0;
 };
 
 }  // namespace rws

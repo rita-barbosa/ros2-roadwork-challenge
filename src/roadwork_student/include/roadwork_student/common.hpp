@@ -94,6 +94,12 @@ struct Track {
   double x_at(double t) const { return x + vx * (t - stamp); }
 };
 
+// LiDAR obstacle cluster, map frame (visible extent of an object).
+struct Cluster {
+  double x = 0.0, y = 0.0, radius = 0.0, range_min = 0.0;
+  int n = 0;
+};
+
 // Internal scene (mirror of roadwork_student_interfaces/msg/Scene).
 struct SceneData {
   double stamp = -1.0;
@@ -111,6 +117,11 @@ struct SceneData {
   double radar_stamp = -1.0, radar_pose_dt = 0.0;
   int radar_detections = 0, radar_moving = 0, radar_rejected = 0;
   std::vector<Track> tracks;
+  // LiDAR (obstacle returns of the newest scan, map frame)
+  double lidar_stamp = -1.0, lidar_pose_dt = 0.0;
+  int lidar_returns = 0, lidar_rejected = 0;
+  std::vector<Point2> obstacle_points;
+  std::vector<Cluster> clusters;
 };
 
 }  // namespace rws

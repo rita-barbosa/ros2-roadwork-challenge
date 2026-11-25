@@ -1,8 +1,10 @@
-// sense_node: subscribes to odometry, the panel camera, the roadwork beacon and
-// the radar, validates and interprets them (panel state, cached geometry,
-// moving-object tracks) and publishes the internal scene on /solution/scene
-// (20 Hz, on odometry).
+// sense_node: subscribes to odometry, the panel camera, the roadwork beacon, the
+// radar and the LiDAR, validates and interprets them (panel state, cached
+// geometry, moving-object tracks, map-frame obstacle returns and clusters) and
+// publishes the internal scene on /solution/scene (20 Hz, on odometry) plus
+// RViz markers of its perception on /solution/perception (10 Hz).
 #include <chrono>
+#include <cstdio>
 #include <map>
 #include <memory>
 #include <string>
@@ -16,6 +18,8 @@
 #include "roadwork_student/sense_core.hpp"
 #include "roadwork_student_interfaces/msg/scene.hpp"
 #include "sensor_msgs/msg/image.hpp"
+#include "sensor_msgs/msg/laser_scan.hpp"
+#include "visualization_msgs/msg/marker_array.hpp"
 
 using namespace std::chrono_literals;
 using rws_ros::to_msg;
@@ -47,11 +51,14 @@ class SenseNode : public rclcpp::Node {
     beacon_sub_ = create_subscription<roadwork_interfaces::msg::RoadworkBeacon>(
         "/infra/roadwork/beacon", rclcpp::QoS(10).reliable(),
         [this](roadwork_interfaces::msg::RoadworkBeacon::ConstSharedPtr m) { on_beacon(*m); });
+    lidar_sub_ = create_subscription<sensor_msgs::msg::LaserScan>(
+        "/lidar/scan", sensor_qos, [this](sensor_msgs::msg::LaserScan::ConstSharedPtr m) { on_scan(*m); });
     radar_sub_ = create_subscription<roadwork_interfaces::msg::RadarDetections>(
         "/radar/detections", sensor_qos,
         [this](roadwork_interfaces::msg::RadarDetections::ConstSharedPtr m) { on_radar(*m); });
 
     scene_pub_ = create_publisher<SceneMsg>("/solution/scene", rclcpp::QoS(1).reliable());
+    markers_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>("/solution/perception", rclcpp::QoS(5));
     // If odometry stops, keep publishing scenes (ego_valid=false) so Plan sees the cause.
     watchdog_ = create_timer(50ms, [this]() {
       const double now = rws_ros::now_sec(*this);
@@ -131,6 +138,73 @@ class SenseNode : public rclcpp::Node {
                   b.g.entry_x, b.g.work_start, b.g.work_end, b.g.exit_x, b.g.speed_limit);
   }
 
+  void on_scan(const sensor_msgs::msg::LaserScan& m) {
+    const double now = rws_ros::now_sec(*this);
+    if (m.header.frame_id != "base_link") return warn("scan", "frame_id is not base_link");
+    rws::LidarScanIn s;
+    s.stamp = to_sec(m.header.stamp);
+    s.angle_min = m.angle_min;
+    s.angle_increment = m.angle_increment;
+    s.range_min = m.range_min;
+    s.range_max = m.range_max;
+    s.ranges = m.ranges;
+    std::string why;
+    if (!core_->on_scan(s, now, &why)) return warn("scan", why);
+    publish_markers(now);
+  }
+
+  // Debug visualisation only (never an algorithm input): clusters and tracks.
+  void publish_markers(double now) {
+    using visualization_msgs::msg::Marker;
+    const rws::SceneData s = core_->scene(now);
+    visualization_msgs::msg::MarkerArray out;
+    Marker clear;
+    clear.action = Marker::DELETEALL;
+    out.markers.push_back(clear);
+    int id = 0;
+    auto base = [&](const char* ns, int type) {
+      Marker mk;
+      mk.header.stamp = to_msg(now);
+      mk.header.frame_id = "map";
+      mk.ns = ns;
+      mk.id = id++;
+      mk.type = type;
+      mk.action = Marker::ADD;
+      mk.pose.orientation.w = 1.0;
+      return mk;
+    };
+    for (const auto& c : s.clusters) {
+      Marker mk = base("lidar_clusters", Marker::CYLINDER);
+      mk.pose.position.x = c.x;
+      mk.pose.position.y = c.y;
+      mk.pose.position.z = 0.3;
+      mk.scale.x = mk.scale.y = 2.0 * std::max(0.15, c.radius);
+      mk.scale.z = 0.6;
+      mk.color.r = 1.0; mk.color.g = 0.6; mk.color.b = 0.1; mk.color.a = 0.5;
+      out.markers.push_back(mk);
+    }
+    for (const auto& t : s.tracks) {
+      Marker mk = base("radar_tracks", Marker::SPHERE);
+      mk.pose.position.x = t.x_at(now);
+      mk.pose.position.y = t.y;
+      mk.pose.position.z = 0.8;
+      mk.scale.x = mk.scale.y = mk.scale.z = t.confirmed ? 1.0 : 0.5;
+      mk.color.r = 0.95; mk.color.g = 0.1; mk.color.b = t.coasting ? 0.9 : 0.1; mk.color.a = 0.9;
+      out.markers.push_back(mk);
+      Marker tx = base("radar_tracks", Marker::TEXT_VIEW_FACING);
+      tx.pose.position.x = t.x_at(now);
+      tx.pose.position.y = t.y + 1.2;
+      tx.pose.position.z = 1.0;
+      tx.scale.z = 0.7;
+      tx.color.r = tx.color.g = tx.color.b = tx.color.a = 1.0;
+      char buf[64];
+      std::snprintf(buf, sizeof(buf), "T%d vx=%.1f%s", t.id, t.vx, t.coasting ? " (coast)" : "");
+      tx.text = buf;
+      out.markers.push_back(tx);
+    }
+    markers_pub_->publish(out);
+  }
+
   void on_radar(const roadwork_interfaces::msg::RadarDetections& m) {
     const double now = rws_ros::now_sec(*this);
     if (m.header.frame_id != "base_link") return warn("radar", "frame_id is not base_link");
@@ -201,6 +275,26 @@ class SenseNode : public rclcpp::Node {
       tm.coasting = t.coasting;
       m.tracks.push_back(tm);
     }
+
+    m.lidar_stamp = to_msg(s.lidar_stamp);
+    m.lidar_pose_dt = static_cast<float>(s.lidar_pose_dt);
+    m.lidar_returns = static_cast<uint32_t>(s.lidar_returns);
+    m.lidar_rejected = static_cast<uint32_t>(s.lidar_rejected);
+    m.obstacle_x.reserve(s.obstacle_points.size());
+    m.obstacle_y.reserve(s.obstacle_points.size());
+    for (const auto& q : s.obstacle_points) {
+      m.obstacle_x.push_back(static_cast<float>(q.x));
+      m.obstacle_y.push_back(static_cast<float>(q.y));
+    }
+    for (const auto& c : s.clusters) {
+      roadwork_student_interfaces::msg::Obstacle om;
+      om.x = c.x;
+      om.y = c.y;
+      om.radius = c.radius;
+      om.range_min = c.range_min;
+      om.n_points = static_cast<uint32_t>(c.n);
+      m.obstacles.push_back(om);
+    }
     scene_pub_->publish(m);
     last_scene_ = now;
   }
@@ -215,6 +309,8 @@ class SenseNode : public rclcpp::Node {
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_sub_;
   rclcpp::Subscription<roadwork_interfaces::msg::RoadworkBeacon>::SharedPtr beacon_sub_;
   rclcpp::Subscription<roadwork_interfaces::msg::RadarDetections>::SharedPtr radar_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr lidar_sub_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr markers_pub_;
   rclcpp::Publisher<SceneMsg>::SharedPtr scene_pub_;
   rclcpp::TimerBase::SharedPtr watchdog_;
 };

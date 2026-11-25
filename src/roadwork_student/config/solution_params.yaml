@@ -30,6 +30,13 @@ plan:
     gap_a_nominal: 1.0          # m/s^2, conservative ego acceleration for the clearing time
     traffic_radius: 1.0         # m, assumed radius of other vehicles
     gap_margin: 1.0             # m, longitudinal margin around the opposing-lane interval
+    use_obstacle_check: true    # ablation switch: LiDAR corridor check
+    lidar_timeout: 0.35         # s, older LiDAR evidence is no obstacle evidence
+    corridor_half_width: 1.3    # m, ego radius 0.9 + 0.4 margin around the planned path
+    obstacle_horizon: 40.0      # m of path checked ahead (LiDAR range)
+    obstacle_standoff: 2.5      # m, ego reference to the first blocking return when stopped
+    obstacle_decel: 2.0         # m/s^2, planned braking for obstacles (vehicle limit 3)
+    obstacle_clear_time: 0.3    # s the corridor must stay clear before resuming
 act:
   ros__parameters:
     use_sim_time: true

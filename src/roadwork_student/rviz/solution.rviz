@@ -46,6 +46,16 @@ Visualization Manager:
       Color: 80; 220; 120
       Line Style: Lines
       Line Width: 0.05
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Perception (clusters, tracks)
+      Enabled: true
+      Marker Topic: /solution/perception
+      Topic:
+        Value: /solution/perception
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 5
     - Class: rviz_default_plugins/Image
       Name: Panel camera
       Enabled: true

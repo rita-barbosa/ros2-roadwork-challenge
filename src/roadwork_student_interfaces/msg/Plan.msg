@@ -14,7 +14,8 @@ uint8 STATE_FINAL=5           # own lane after exit, approaching the goal
 uint8 STATE_GOAL=6            # stopped at goal (latched)
 uint8 STATE_SAFE_STOP=7       # missing/stale odometry or scene: braking
 uint8 STATE_YIELD=8           # GO, but opposing traffic leaves no safe gap: wait before the opposing lane
-uint8 STATE_WAIT_INFO=9       # GO, but beacon or radar evidence is stale/missing: wait before entry
+uint8 STATE_WAIT_INFO=9       # required evidence stale/missing (beacon/radar/LiDAR before entry; LiDAR after): wait
+uint8 STATE_BLOCKED=10        # LiDAR returns inside the planned corridor: stop before them and wait
 
 std_msgs/Header header
 builtin_interfaces/Time scene_stamp    # scene used

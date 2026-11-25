@@ -13,12 +13,13 @@ find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
 find_package(roadwork_interfaces REQUIRED)
 find_package(roadwork_student_interfaces REQUIRED)
 
 add_executable(sense_node src/sense_node.cpp)
 target_include_directories(sense_node PRIVATE include)
-ament_target_dependencies(sense_node rclcpp builtin_interfaces nav_msgs sensor_msgs
+ament_target_dependencies(sense_node rclcpp builtin_interfaces nav_msgs sensor_msgs visualization_msgs
   roadwork_interfaces roadwork_student_interfaces)
 
 add_executable(plan_node src/plan_node.cpp)
