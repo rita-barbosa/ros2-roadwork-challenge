@@ -1,6 +1,7 @@
-// Planning: reference path, speed profile, pure pursuit and the S1 decision
-// state machine used by plan_node (ROS-free).
+// Planning: reference path, speed profile, pure pursuit, the traffic gap check
+// and the decision state machine used by plan_node (ROS-free).
 #pragma once
+#include <cstdio>
 #include <limits>
 #include <string>
 #include <vector>
@@ -48,6 +49,19 @@ struct PlannerConfig {
   // collision disc stop_distance before the beacon entry line.
   double stop_distance = 1.0;      // m, gap between vehicle front and entry line when stopped
   double stop_decel = 1.0;         // m/s^2, deceleration of the stop-line speed profile
+  // Opposing traffic (radar tracks). The bypass occupies the opposing lane on
+  // [opp_lo, opp_hi] (path x where the ego disc crosses y = 0). Entering is only
+  // allowed if no confirmed track can reach that interval (widened by the
+  // combined radii and a margin) before the ego has left it plus gap_time.
+  bool use_traffic_gap = true;     // ablation switch
+  double radar_timeout = 0.35;     // s, radar is 10 Hz
+  double gap_time = 3.0;           // s, safety margin on top of the ego clearing time
+  double gap_v_nominal = 3.0;      // m/s, conservative ego speed used for the clearing time
+  double gap_a_nominal = 1.0;      // m/s^2, conservative ego acceleration for the clearing time
+  double traffic_radius = 1.0;     // m, assumed radius of other vehicles (radar gives no size)
+  double gap_margin = 1.0;         // m, extra longitudinal margin around the interval
+  double traffic_min_y = -1.0;     // m, only tracks with y above this can occupy the opposing lane
+  double yield_before = 0.5;       // m, committed ego yields with its reference this far before opp_lo
 };
 
 // ---------------------------------------------------------------------------
@@ -107,6 +121,11 @@ class ReferencePath {
       pts_.clear();
       return false;
     }
+    // Opposing-lane occupancy interval of the path (ego disc crosses y = 0).
+    opp_lo_ = std::numeric_limits<double>::infinity();
+    opp_hi_ = -std::numeric_limits<double>::infinity();
+    for (const auto& q : pts_)
+      if (q.y + kEgoRadius > 0.0) { opp_lo_ = std::min(opp_lo_, q.x); opp_hi_ = std::max(opp_hi_, q.x); }
     return true;
   }
 
@@ -117,6 +136,8 @@ class ReferencePath {
   double x2() const { return x2_; }
   double x3() const { return x3_; }
   double max_steer() const { return max_steer_; }
+  double opp_lo() const { return opp_lo_; }
+  double opp_hi() const { return opp_hi_; }
 
   double y_at(double x) const {
     double y, a, b, c;
@@ -173,6 +194,7 @@ class ReferencePath {
   std::vector<PathPoint> pts_;
   PathConfig cfg_;
   double x_begin_ = 0, x0_ = 0, x1_ = 0, x2_ = 0, x3_ = 0, max_steer_ = 0;
+  double opp_lo_ = 0, opp_hi_ = 0;
 };
 
 // Pure pursuit on the rear-axle reference. Returns the front-wheel angle.
@@ -190,16 +212,20 @@ inline double pure_pursuit(const ReferencePath& path, size_t nearest, const EgoS
 }
 
 // ---------------------------------------------------------------------------
-// Decision state machine (S1-S2: static works, STOP/GO panel)
+// Decision state machine
 // ---------------------------------------------------------------------------
 // INIT (no odometry/geometry) -> WAIT_GO (no confirmed GO: drive in own lane and
-// stop before the entry line) <-> APPROACH (GO confirmed, before the line)
+// stop before the entry line) / YIELD (GO, but opposing traffic leaves no safe
+// gap: same stop line) <-> APPROACH (entry permitted, before the line)
 // -> BYPASS -> RETURN -> FINAL -> GOAL.
-// Entry permission is re-evaluated every cycle until the commitment point, where
-// the vehicle could no longer stop before the line even with full braking; GO is
-// latched there. SAFE_STOP: odometry or scene missing/stale (braking).
+// Entry permission (confirmed GO AND a safe traffic gap) is re-evaluated every
+// cycle until the commitment point, where the vehicle could no longer stop
+// before the line even with full braking; it is latched there. After
+// commitment, a conflicting track still makes the ego YIELD before the
+// opposing-lane interval if it can stop there. SAFE_STOP: odometry or scene
+// missing/stale (braking).
 enum class State : uint8_t {
-  Init = 0, WaitGo = 1, Approach = 2, Bypass = 3, Return = 4, Final = 5, Goal = 6, SafeStop = 7
+  Init = 0, WaitGo = 1, Approach = 2, Bypass = 3, Return = 4, Final = 5, Goal = 6, SafeStop = 7, Yield = 8
 };
 
 inline const char* to_string(State s) {
@@ -211,6 +237,7 @@ inline const char* to_string(State s) {
     case State::Return: return "RETURN";
     case State::Final: return "FINAL";
     case State::Goal: return "GOAL";
+    case State::Yield: return "YIELD";
     default: return "SAFE_STOP";
   }
 }
@@ -226,7 +253,24 @@ struct PlanOutput {
   double cte = 0, path_s = 0, v_path = 0, v_goal = 0, lookahead = 0;
   double d_line = 0;                                       // vehicle front to entry line, m
   double v_stop = std::numeric_limits<double>::infinity();  // stop-line speed cap (inf = none)
+  double v_yield = std::numeric_limits<double>::infinity(); // committed yield cap (inf = none)
+  // traffic gap
+  bool gap_ok = true, radar_fresh = false;
+  std::string gap_reason;
+  double t_clear = 0;          // s, conservative ego time to leave the opposing-lane interval
+  int conflict_id = -1;        // conflicting track (-1 = none)
+  double conflict_x = 0, conflict_vx = 0;
+  int n_tracks = 0;
   Point2 target;
+};
+
+// Result of the opposing-traffic gap check.
+struct GapCheck {
+  bool ok = true, radar_fresh = false;
+  std::string reason;
+  double t_clear = 0;
+  int conflict_id = -1, n_tracks = 0;
+  double conflict_x = 0, conflict_vx = 0;
 };
 
 class Planner {
@@ -276,15 +320,29 @@ class Planner {
     // latched (commitment) there. Without permission, the stop-line profile below
     // brings the vehicle to rest stop_distance before the line.
     o.d_line = g.entry_x - (e.x + kEgoRadius);
-    const bool permission = sc.panel_state == Panel::Go;
+    const bool panel_go = sc.panel_state == Panel::Go;
+    const GapCheck gap = traffic_gap(sc, now, e, v);
+    o.gap_ok = gap.ok;
+    o.radar_fresh = gap.radar_fresh;
+    o.gap_reason = gap.reason;
+    o.t_clear = gap.t_clear;
+    o.conflict_id = gap.conflict_id;
+    o.conflict_x = gap.conflict_x;
+    o.conflict_vx = gap.conflict_vx;
+    o.n_tracks = gap.n_tracks;
+    const bool permission = panel_go && gap.ok;
     if (!go_ && permission && o.d_line <= brake_distance(v)) go_ = true;
     o.go = go_;
     const bool wait = !go_ && !permission;
-    if (wait) {
-      const double d = o.d_line - cfg_.stop_distance;  // to the stop point
-      o.v_stop = d <= 0.0 ? 0.0
-                          : std::max(cfg_.creep_speed,
-                                     std::sqrt(2.0 * cfg_.stop_decel * std::max(0.0, d - v * cfg_.control_delay)));
+    if (wait) o.v_stop = stop_profile(o.d_line - cfg_.stop_distance, v);  // to the stop point
+    // Committed but traffic appeared: yield before the opposing lane if still possible.
+    bool yielding = false;
+    if (go_ && !gap.ok) {
+      const double d_yield = path_.opp_lo() - cfg_.yield_before - e.x;
+      if (d_yield > 0.0 && brake_distance(v) <= d_yield) {
+        o.v_yield = stop_profile(d_yield, v);
+        yielding = true;
+      }
     }
 
     // Projection on the reference path.
@@ -303,7 +361,7 @@ class Planner {
       const double d = cfg_.goal_x - e.x - v * cfg_.control_delay;
       o.v_goal = std::max(cfg_.creep_speed, std::sqrt(2.0 * cfg_.goal_decel * std::max(0.0, d)));
     }
-    target = std::min({target, o.v_goal, o.v_stop});
+    target = std::min({target, o.v_goal, o.v_stop, o.v_yield});
     o.speed_limit = std::min(kSpeedLimit, g.speed_limit) - cfg_.speed_margin;
     target = clampd(target, 0.0, o.speed_limit);
 
@@ -316,9 +374,19 @@ class Planner {
 
     // State from the permission and the position along the route.
     if (wait) {
-      o.state = State::WaitGo;
-      o.reason = std::string("no confirmed GO (panel ") + to_string(sc.panel_state) +
-                 (o.hold ? "): holding at stop line" : "): approaching stop line");
+      const char* at = o.hold ? ": holding at stop line" : ": approaching stop line";
+      if (!panel_go) {
+        o.state = State::WaitGo;
+        o.reason = std::string("no confirmed GO (panel ") + to_string(sc.panel_state) + ")" + at;
+      } else {
+        o.state = State::Yield;
+        o.reason = "GO, but " + gap.reason + at;
+      }
+      return o;
+    }
+    if (yielding) {
+      o.state = State::Yield;
+      o.reason = "committed, but " + gap.reason + (o.hold ? ": holding before opposing lane" : ": yielding before opposing lane");
       return o;
     }
     if (e.x + kEgoRadius < g.entry_x) { o.state = State::Approach; o.reason = "GO confirmed; approaching work zone"; }
@@ -354,6 +422,60 @@ class Planner {
   // Distance covered while reacting (control delay) and then braking at the
   // vehicle's maximum deceleration from speed v.
   double brake_distance(double v) const { return v * cfg_.control_delay + v * v / (2.0 * kMaxBrake); }
+
+  // Speed cap that brings the vehicle to rest after distance d (creeping at the end).
+  double stop_profile(double d, double v) const {
+    if (d <= 0.0) return 0.0;
+    return std::max(cfg_.creep_speed, std::sqrt(2.0 * cfg_.stop_decel * std::max(0.0, d - v * cfg_.control_delay)));
+  }
+
+  // Conservative time for the ego (at speed v) to cover distance d: accelerate
+  // at gap_a_nominal up to gap_v_nominal, then cruise (never faster than that).
+  double time_to_cover(double d, double v) const {
+    if (d <= 0.0) return 0.0;
+    const double vn = std::max(0.1, cfg_.gap_v_nominal), a = std::max(0.1, cfg_.gap_a_nominal);
+    if (v >= vn) return d / vn;
+    const double d_acc = (vn * vn - v * v) / (2.0 * a);
+    if (d <= d_acc) return (-v + std::sqrt(v * v + 2.0 * a * d)) / a;
+    return (vn - v) / a + (d - d_acc) / vn;
+  }
+
+  // Opposing-traffic gap check on radar tracks, evaluated at plan time `now`.
+  // A confirmed track that may occupy the opposing lane (y > traffic_min_y) is
+  // predicted at constant along-road velocity over the horizon
+  // T = t_clear + gap_time; if its x-range over [now, now+T] overlaps
+  // [opp_lo - r, opp_hi + r] (r = ego + traffic radius + margin) the gap is
+  // unsafe. A track that has already passed the interval and moves away never
+  // overlaps; a fast or near track arriving before the ego has left does.
+  GapCheck traffic_gap(const SceneData& sc, double now, const EgoState& e, double v) const {
+    GapCheck c;
+    c.radar_fresh = is_fresh(now, sc.radar_stamp, cfg_.radar_timeout);
+    for (const auto& t : sc.tracks) c.n_tracks += t.confirmed ? 1 : 0;
+    if (!cfg_.use_traffic_gap) { c.reason = "traffic gap check disabled (ablation)"; return c; }
+    if (e.x - kEgoRadius > path_.opp_hi()) { c.reason = "past the opposing-lane interval"; return c; }
+    if (!c.radar_fresh) { c.ok = false; c.reason = "radar stale: opposing lane cannot be certified"; return c; }
+    c.t_clear = time_to_cover(path_.opp_hi() - e.x, v);
+    const double horizon = c.t_clear + cfg_.gap_time;
+    const double r = kEgoRadius + cfg_.traffic_radius + cfg_.gap_margin;
+    const double lo = path_.opp_lo() - r, hi = path_.opp_hi() + r;
+    for (const auto& t : sc.tracks) {
+      if (!t.confirmed || t.y <= cfg_.traffic_min_y) continue;
+      const double x0 = t.x_at(now), x1 = x0 + t.vx * horizon;
+      if (std::max(x0, x1) >= lo && std::min(x0, x1) <= hi) {
+        c.ok = false;
+        c.conflict_id = t.id;
+        c.conflict_x = x0;
+        c.conflict_vx = t.vx;
+        char buf[160];
+        std::snprintf(buf, sizeof(buf), "moving track %d at x=%.1f vx=%.1f m/s conflicts within %.1f s", t.id, x0,
+                      t.vx, horizon);
+        c.reason = buf;
+        return c;
+      }
+    }
+    c.reason = c.n_tracks ? "traffic gap is safe" : "no moving traffic detected";
+    return c;
+  }
 
   double profile_speed(size_t i, double v) const {
     const auto& p = path_.points();

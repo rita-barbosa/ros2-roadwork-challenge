@@ -136,11 +136,96 @@ static void test_sense_core() {
   CHECK(panel_core.scene(0.31).panel_state == Panel::Unknown);  // stale evidence cannot authorize motion
 }
 
+// Radar detection of a map-frame object seen from ego pose e (exact, no noise).
+static RadarDet radar_of(const EgoState& e, double ox, double oy, double ovx) {
+  const double dx = ox - e.x, dy = oy - e.y, r = std::hypot(dx, dy);
+  RadarDet d;
+  d.range = r;
+  d.azimuth = wrap_angle(std::atan2(dy, dx) - e.yaw);
+  d.radial_velocity = ((ovx - e.v * std::cos(e.yaw)) * dx - e.v * std::sin(e.yaw) * dy) / r;
+  return d;
+}
+
+static void test_tracker() {
+  {  // Static works seen from a moving ego: compensated, no track.
+    TrafficTracker tr;
+    EgoState e;
+    e.x = 20; e.y = -1.75; e.v = 3.5;
+    for (int k = 0; k < 5; ++k) {
+      e.x += 0.35;
+      CHECK(tr.update(0.1 * k, e, {radar_of(e, 43, -1.75, 0.0), radar_of(e, 47, -1.75, 0.0)}) == 0);
+    }
+    CHECK(tr.tracks().empty());
+  }
+  {  // Oncoming vehicle in the opposing lane: confirmed track with vx ~ -3 m/s.
+    TrafficTracker tr;
+    EgoState e;
+    e.x = 23.1; e.y = -1.75; e.v = 0.0;
+    double cx = 60.0;
+    for (int k = 0; k < 5; ++k, cx -= 0.3) tr.update(0.1 * k, e, {radar_of(e, cx, 1.75, -3.0)});
+    CHECK(tr.tracks().size() == 1);
+    const Track& t = tr.tracks().front();
+    CHECK(t.confirmed && !t.coasting);
+    CHECK_NEAR(t.vx, -3.0, 0.05);
+    CHECK_NEAR(t.x, cx + 0.3, 0.05);
+    CHECK_NEAR(t.y, 1.75, 0.05);
+    // Drive the car past the ego with the real +/-60 deg FOV: beside and behind
+    // the ego there are no detections and the track coasts on its prediction.
+    for (int k = 5; k < 130; ++k, cx -= 0.3) {
+      const RadarDet d = radar_of(e, cx, 1.75, -3.0);
+      tr.update(0.1 * k, e, std::abs(d.azimuth) <= kPi / 3 ? std::vector<RadarDet>{d} : std::vector<RadarDet>{});
+    }
+    CHECK(tr.tracks().size() == 1);
+    CHECK(tr.tracks().front().coasting);
+    CHECK(tr.tracks().front().hits >= 100);
+    CHECK_NEAR(tr.tracks().front().x_at(12.9), 60.0 - 3.0 * 12.9, 0.3);
+  }
+  {  // A confirmed track predicted INSIDE the FOV but not detected is deleted after miss_limit scans.
+    TrafficTracker tr;
+    EgoState e;
+    e.x = 5; e.y = -1.75;
+    for (int k = 0; k < 3; ++k) tr.update(0.1 * k, e, {radar_of(e, 70 - 0.3 * k, 1.75, -3.0)});
+    CHECK(tr.tracks().size() == 1);
+    tr.update(0.3, e, {});
+    tr.update(0.4, e, {});
+    CHECK(tr.tracks().size() == 1);
+    tr.update(0.5, e, {});
+    CHECK(tr.tracks().empty());
+  }
+}
+
+static void test_sense_radar() {
+  SenseCore core;
+  EgoState e;
+  e.stamp = 1.0; e.x = 23.1; e.y = -1.75;
+  // No odometry yet: the scan cannot be associated with a pose.
+  CHECK(!core.on_radar(1.0, {radar_of(e, 60, 1.75, -3)}, 1.0));
+  CHECK(core.on_odom(e, 1.0));
+  RadarDet bad;
+  bad.range = std::nan("");
+  CHECK(core.on_radar(1.0, {radar_of(e, 60, 1.75, -3), bad}, 1.0));  // malformed detection dropped
+  CHECK(!core.on_radar(1.0, {}, 1.05));                               // repeated scan
+  CHECK(!core.on_radar(2.0, {}, 1.05));                               // future scan
+  const SceneData s = core.scene(1.05);
+  CHECK(s.radar_detections == 1 && s.radar_moving == 1);
+  CHECK(s.radar_rejected == 4);  // no pose, malformed detection, repeated, future
+  CHECK_NEAR(s.radar_stamp, 1.0, 1e-12);
+  CHECK(s.tracks.size() == 1 && !s.tracks.front().confirmed);
+  // A scan 0.05 s newer than the newest odometry is associated by extrapolation.
+  e.stamp = 1.05; e.v = 2.0;
+  CHECK(core.on_odom(e, 1.05));
+  CHECK(core.on_radar(1.10, {}, 1.10));
+  CHECK_NEAR(core.scene(1.1).radar_pose_dt, 0.05, 1e-9);
+  CHECK(!core.on_radar(1.40, {}, 1.40));  // 0.35 s from any odometry sample: rejected
+}
+
 int main() {
   test_panel_confusion();
   test_panel_malformed();
   test_panel_filter();
   test_beacon();
   test_sense_core();
+  test_tracker();
+  test_sense_radar();
   return TEST_SUMMARY("test_perception");
 }

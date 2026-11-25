@@ -78,6 +78,22 @@ struct Geometry {
   }
 };
 
+// One radar detection in base_link (polar), as published on /radar/detections.
+struct RadarDet {
+  double range = 0.0, azimuth = 0.0, radial_velocity = 0.0;
+};
+
+// Radar track of a moving object, map frame. State is valid at `stamp`;
+// consumers predict it to their own time with constant along-road velocity.
+struct Track {
+  int id = 0;
+  double stamp = -1.0;
+  double x = 0.0, y = 0.0, vx = 0.0;
+  int hits = 0, misses = 0;
+  bool confirmed = false, coasting = false;
+  double x_at(double t) const { return x + vx * (t - stamp); }
+};
+
 // Internal scene (mirror of roadwork_student_interfaces/msg/Scene).
 struct SceneData {
   double stamp = -1.0;
@@ -91,6 +107,10 @@ struct SceneData {
   double beacon_stamp = -1.0;
   Geometry geometry;
   int beacon_rejected = 0;
+  // radar (moving-object tracks)
+  double radar_stamp = -1.0, radar_pose_dt = 0.0;
+  int radar_detections = 0, radar_moving = 0, radar_rejected = 0;
+  std::vector<Track> tracks;
 };
 
 }  // namespace rws

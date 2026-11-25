@@ -42,7 +42,14 @@ static SceneData scene(double now, double x, double v, Panel panel) {
   s.panel_state = panel; s.panel_raw = panel; s.camera_stamp = now;
   s.geometry_known = true; s.beacon_stamp = now;
   s.geometry = geom(0);
+  s.radar_stamp = now;  // fresh radar, no moving traffic
   return s;
+}
+
+static Track track(int id, double stamp, double x, double vx) {
+  Track t;
+  t.id = id; t.stamp = stamp; t.x = x; t.y = 1.75; t.vx = vx; t.hits = 5; t.confirmed = true;
+  return t;
 }
 
 static void test_decisions() {
@@ -111,6 +118,78 @@ static void test_decisions() {
   }
 }
 
+static void test_traffic_gap() {
+  Planner pl;
+  const double stop_x = 25 - kEgoRadius - pl.config().stop_distance;
+  {  // Oncoming car in the opposing lane ahead: GO, but YIELD at the stop line.
+    SceneData s = scene(1, stop_x, 0, Panel::Go);
+    s.tracks = {track(1, 1, 60, -3)};
+    const PlanOutput o = pl.step(s, 1);
+    CHECK(o.state == State::Yield);
+    CHECK(!o.gap_ok && o.conflict_id == 1);
+    CHECK(o.speed == 0.0 && o.hold);
+    CHECK(!pl.go_latched());
+  }
+  {  // Unconfirmed tracks and tracks in the own lane do not block.
+    SceneData s = scene(2, stop_x, 0, Panel::Go);
+    Track t = track(2, 2, 60, -3);
+    t.confirmed = false;
+    Track own = track(3, 2, 60, -3);
+    own.y = -1.75;
+    s.tracks = {t, own};
+    CHECK(pl.step(s, 2).state == State::Approach);
+  }
+  {  // Car already past the interval and moving away: safe.
+    SceneData s = scene(3, stop_x, 0, Panel::Go);
+    s.tracks = {track(4, 3, 20, -3)};
+    const PlanOutput o = pl.step(s, 3);
+    CHECK(o.gap_ok && o.state == State::Approach);
+    CHECK(o.speed > 0.0);
+  }
+  {  // Car far away: arrives only after the ego has cleared the interval (+gap_time).
+    SceneData s = scene(4, stop_x, 0, Panel::Go);
+    s.tracks = {track(5, 4, 200, -3)};
+    CHECK(pl.step(s, 4).gap_ok);
+    s.tracks = {track(5, 4, 110, -3)};  // ~45 m before the interval end at 3 m/s: too close
+    CHECK(!pl.step(s, 4).gap_ok);
+  }
+  {  // The prediction uses the plan time: an old track state is advanced to now.
+    SceneData s = scene(5, stop_x, 0, Panel::Go);
+    s.tracks = {track(6, 0.0, 33, -3)};  // at x=33 five seconds ago -> now at x=18
+    CHECK(pl.step(s, 5).gap_ok);
+  }
+  {  // Stale radar: the opposing lane cannot be certified.
+    SceneData s = scene(6, stop_x, 0, Panel::Go);
+    s.radar_stamp = 5.5;
+    const PlanOutput o = pl.step(s, 6);
+    CHECK(o.state == State::Yield && !o.gap_ok && !o.radar_fresh);
+  }
+  {  // Committed, a conflict appears before the opposing lane: stop before it if still possible.
+    Planner p2;
+    p2.step(scene(1, 5, 0, Panel::Go), 1);
+    p2.step(scene(2, 22.5, 3.0, Panel::Go), 2);  // inside the braking distance of the line: committed
+    CHECK(p2.go_latched());
+    const double yield_x = p2.path().opp_lo() - p2.config().yield_before;
+    SceneData s = scene(3, yield_x - 1.4, 2.0, Panel::Go);
+    s.tracks = {track(7, 3, 50, -3)};
+    const PlanOutput o = p2.step(s, 3);
+    CHECK(o.state == State::Yield);
+    CHECK(o.speed < 2.0 && o.v_yield < 2.0);
+    // Too close to stop before the opposing lane: continue (committed).
+    SceneData s2 = scene(4, yield_x - 0.3, 3.0, Panel::Go);
+    s2.tracks = {track(7, 4, 47, -3)};
+    CHECK(p2.step(s2, 4).state == State::Bypass);
+  }
+  {  // Ablation switch: the gap check is skipped.
+    PlannerConfig c;
+    c.use_traffic_gap = false;
+    Planner p3(c);
+    SceneData s = scene(1, stop_x, 0, Panel::Go);
+    s.tracks = {track(8, 1, 60, -3)};
+    CHECK(p3.step(s, 1).state == State::Approach);
+  }
+}
+
 static void test_guard() {
   CommandGuard g;
   PlanInput p;
@@ -138,6 +217,7 @@ static void test_guard() {
 int main() {
   test_path_geometry();
   test_decisions();
+  test_traffic_gap();
   test_guard();
   return TEST_SUMMARY("test_planning");
 }

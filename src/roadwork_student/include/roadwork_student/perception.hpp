@@ -151,4 +151,125 @@ class BeaconMonitor {
   int rejected_ = 0;
 };
 
+// ---------------------------------------------------------------------------
+// Radar: ego-motion compensation and moving-object tracking
+// ---------------------------------------------------------------------------
+// The radar reports range, azimuth (base_link) and the radial velocity, which
+// includes the ego motion: a static object at azimuth az has
+// v_r = -v_ego * cos(az). The compensated radial velocity
+//     v_comp = v_r + v_ego * cos(az)
+// is the projection of the object's own map-frame velocity on the line of
+// sight. Detections with |v_comp| >= moving_threshold are moving objects (the
+// static works and parked obstacles are left to the LiDAR). Traffic is assumed
+// to move along the road, so vx = v_comp / cos(map bearing) when the bearing is
+// not too oblique; otherwise vx is corrected from the position residual.
+//
+// Tracks are associated greedily to the nearest moving detection inside a gate
+// around their constant-velocity prediction. A track that is NOT detected
+// while it is predicted inside the radar FOV accumulates misses and is deleted;
+// a track predicted OUTSIDE the FOV/range (e.g. passing beside the ego) is
+// coasted by prediction, because a missing detection is not an empty road.
+struct TrackerConfig {
+  double moving_threshold = 0.6;  // m/s; noise on v_r is +/-noise (<= 0.05 m/s)
+  double gate = 3.0;              // m around the predicted position
+  double alpha = 0.5;             // position smoothing gain
+  double vel_gain = 0.5;          // smoothing of the radial-velocity projection
+  double beta = 0.4;              // velocity correction from the position residual
+  double min_cos = 0.5;           // use v_comp / cos(bearing) only when |cos| >= this
+  double fov = kPi / 3.0;         // radar half field of view (+/-60 deg)
+  double fov_margin = 0.08;       // rad: a prediction this far inside the FOV must be detected
+  double max_range = 80.0;        // m
+  int confirm_hits = 2;           // radar updates before Plan uses a track
+  int miss_limit = 3;             // consecutive misses inside the FOV before deletion
+  double max_coast = 20.0;        // s a coasting track survives without updates
+  double drop_behind = 30.0;      // m: tracks this far behind the ego are dropped
+};
+
+class TrafficTracker {
+ public:
+  explicit TrafficTracker(const TrackerConfig& c = TrackerConfig{}) : cfg_(c) {}
+
+  // `pose` is the ego pose associated with the scan stamp (see SenseCore::pose_at).
+  // Returns the number of moving detections in the scan.
+  int update(double stamp, const EgoState& pose, const std::vector<RadarDet>& dets) {
+    struct Meas {
+      double x, y, vx;
+      bool has_vx;
+    };
+    std::vector<Meas> moving;
+    for (const auto& d : dets) {
+      const double comp = d.radial_velocity + pose.v * std::cos(d.azimuth);
+      if (std::abs(comp) < cfg_.moving_threshold) continue;
+      const double th = pose.yaw + d.azimuth, c = std::cos(th);
+      Meas m{pose.x + d.range * c, pose.y + d.range * std::sin(th), 0.0, false};
+      if (std::abs(c) >= cfg_.min_cos) { m.vx = comp / c; m.has_vx = true; }
+      moving.push_back(m);
+    }
+
+    std::vector<bool> used(moving.size(), false);
+    for (auto& t : tracks_) {
+      const double dt = stamp - t.stamp;
+      const double px = t.x + t.vx * dt, py = t.y;
+      int best = -1;
+      double bd = cfg_.gate;
+      for (size_t i = 0; i < moving.size(); ++i) {
+        if (used[i]) continue;
+        const double d = std::hypot(moving[i].x - px, moving[i].y - py);
+        if (d < bd) { bd = d; best = static_cast<int>(i); }
+      }
+      if (best >= 0) {
+        used[best] = true;
+        const Meas& m = moving[best];
+        double vx = t.vx;
+        if (m.has_vx) vx += cfg_.vel_gain * (m.vx - vx);
+        else if (dt > 1e-3) vx += cfg_.beta * (m.x - px) / dt;
+        t.x = px + cfg_.alpha * (m.x - px);
+        t.y = py + cfg_.alpha * (m.y - py);
+        t.vx = vx;
+        t.stamp = stamp;
+        ++t.hits;
+        t.misses = 0;
+        t.coasting = false;
+        t.confirmed = t.hits >= cfg_.confirm_hits;
+      } else {
+        const double ox = px - pose.x, oy = py - pose.y;
+        const double az = wrap_angle(std::atan2(oy, ox) - pose.yaw);
+        const bool observable =
+            std::hypot(ox, oy) <= cfg_.max_range - 2.0 && std::abs(az) <= cfg_.fov - cfg_.fov_margin;
+        if (observable || !t.confirmed) { ++t.misses; t.coasting = false; }
+        else t.coasting = true;
+      }
+    }
+
+    tracks_.erase(std::remove_if(tracks_.begin(), tracks_.end(),
+                                 [&](const Track& t) {
+                                   if (t.misses >= (t.confirmed ? cfg_.miss_limit : 1)) return true;
+                                   if (t.coasting && stamp - t.stamp > cfg_.max_coast) return true;
+                                   return t.x_at(stamp) < pose.x - cfg_.drop_behind;
+                                 }),
+                  tracks_.end());
+
+    for (size_t i = 0; i < moving.size(); ++i) {
+      if (used[i]) continue;
+      Track t;
+      t.id = next_id_++;
+      t.stamp = stamp;
+      t.x = moving[i].x;
+      t.y = moving[i].y;
+      t.vx = moving[i].has_vx ? moving[i].vx : 0.0;
+      t.hits = 1;
+      t.confirmed = cfg_.confirm_hits <= 1;
+      tracks_.push_back(t);
+    }
+    return static_cast<int>(moving.size());
+  }
+
+  const std::vector<Track>& tracks() const { return tracks_; }
+
+ private:
+  TrackerConfig cfg_;
+  std::vector<Track> tracks_;
+  int next_id_ = 1;
+};
+
 }  // namespace rws

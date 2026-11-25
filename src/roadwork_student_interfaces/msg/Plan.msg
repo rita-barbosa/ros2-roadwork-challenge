@@ -13,6 +13,7 @@ uint8 STATE_RETURN=4          # returning to own lane before exit
 uint8 STATE_FINAL=5           # own lane after exit, approaching the goal
 uint8 STATE_GOAL=6            # stopped at goal (latched)
 uint8 STATE_SAFE_STOP=7       # missing/stale odometry or scene: braking
+uint8 STATE_YIELD=8           # GO, but opposing traffic leaves no safe gap: wait before the opposing lane
 
 std_msgs/Header header
 builtin_interfaces/Time scene_stamp    # scene used

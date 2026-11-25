@@ -6,6 +6,12 @@ sense:
     odom_timeout: 0.20          # s
     camera_timeout: 0.30        # s; stale frames cannot authorize entry
     go_confirm_frames: 3        # consecutive GO frames (10 Hz) before GO is confirmed
+    max_assoc_dt: 0.15          # s, max gap between a sensor stamp and the odometry sample used to transform it
+    radar_moving_threshold: 0.6 # m/s, |ego-compensated radial velocity| above this = moving object
+    radar_gate: 3.0             # m, track association gate
+    radar_confirm_hits: 2       # radar updates before a track is confirmed
+    radar_miss_limit: 3         # misses inside the FOV before a track is deleted
+    radar_max_coast: 20.0       # s, lifetime of a track coasting outside the FOV
 plan:
   ros__parameters:
     use_sim_time: true
@@ -15,6 +21,13 @@ plan:
     scene_timeout: 0.25         # s
     plan_validity: 0.25         # s, Plan.valid_until = stamp + this
     stop_distance: 1.0          # m, gap between vehicle front and entry line when stopped without GO
+    use_traffic_gap: true       # ablation switch: radar-based gap check for the opposing lane
+    radar_timeout: 0.35         # s, older radar evidence cannot certify the opposing lane
+    gap_time: 3.0               # s, margin on top of the ego clearing time
+    gap_v_nominal: 3.0          # m/s, conservative ego speed for the clearing time
+    gap_a_nominal: 1.0          # m/s^2, conservative ego acceleration for the clearing time
+    traffic_radius: 1.0         # m, assumed radius of other vehicles
+    gap_margin: 1.0             # m, longitudinal margin around the opposing-lane interval
 act:
   ros__parameters:
     use_sim_time: true

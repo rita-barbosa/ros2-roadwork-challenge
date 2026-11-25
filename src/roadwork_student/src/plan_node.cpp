@@ -1,5 +1,6 @@
-// plan_node: subscribes to /solution/scene, stops before the entry line until a
-// confirmed GO, plans the left bypass and speed, computes pure-pursuit steering and publishes
+// plan_node: subscribes to /solution/scene, stops before the entry line until
+// entry is permitted (confirmed GO and a safe gap in opposing traffic), plans the
+// left bypass and speed, computes pure-pursuit steering and publishes
 // /solution/plan (internal), /solution/state (JSON String) and /solution/path.
 #include <chrono>
 #include <cstdio>
@@ -40,6 +41,23 @@ static rws::SceneData from_msg(const SceneMsg& m) {
   s.beacon_stamp = m.geometry_known ? to_sec(m.beacon_stamp) : -1.0;
   s.geometry.entry_x = m.entry_x; s.geometry.work_start = m.work_start; s.geometry.work_end = m.work_end;
   s.geometry.exit_x = m.exit_x; s.geometry.speed_limit = m.speed_limit; s.geometry.pass_side = m.pass_side;
+  s.radar_stamp = to_sec(m.radar_stamp) > 0 ? to_sec(m.radar_stamp) : -1.0;
+  s.radar_pose_dt = m.radar_pose_dt;
+  s.radar_detections = static_cast<int>(m.radar_detections);
+  s.radar_moving = static_cast<int>(m.radar_moving);
+  s.radar_rejected = static_cast<int>(m.radar_rejected);
+  for (const auto& tm : m.tracks) {
+    rws::Track t;
+    t.id = static_cast<int>(tm.id);
+    t.stamp = to_sec(tm.stamp);
+    t.x = tm.x; t.y = tm.y; t.vx = tm.vx;
+    t.hits = static_cast<int>(tm.hits);
+    t.confirmed = tm.confirmed;
+    t.coasting = tm.coasting;
+    // Malformed tracks are dropped here (internal interface validation).
+    if (!rws::finite_all({t.stamp, t.x, t.y, t.vx})) continue;
+    s.tracks.push_back(t);
+  }
   return s;
 }
 
@@ -54,6 +72,13 @@ class PlanNode : public rclcpp::Node {
     c.scene_timeout = declare_parameter("scene_timeout", c.scene_timeout);
     c.plan_validity = declare_parameter("plan_validity", c.plan_validity);
     c.stop_distance = std::max(0.0, declare_parameter("stop_distance", c.stop_distance));
+    c.use_traffic_gap = declare_parameter("use_traffic_gap", c.use_traffic_gap);
+    c.radar_timeout = declare_parameter("radar_timeout", c.radar_timeout);
+    c.gap_time = declare_parameter("gap_time", c.gap_time);
+    c.gap_v_nominal = declare_parameter("gap_v_nominal", c.gap_v_nominal);
+    c.gap_a_nominal = declare_parameter("gap_a_nominal", c.gap_a_nominal);
+    c.traffic_radius = declare_parameter("traffic_radius", c.traffic_radius);
+    c.gap_margin = declare_parameter("gap_margin", c.gap_margin);
     planner_ = std::make_unique<rws::Planner>(c);
     scene_timeout_ = c.scene_timeout;
 
@@ -71,8 +96,8 @@ class PlanNode : public rclcpp::Node {
                 nullptr, now);
     });
     path_timer_ = create_timer(1s, [this]() { publish_path(); });
-    RCLCPP_INFO(get_logger(), "plan_node ready: bypass_y=%.2f cruise=%.2f m/s stop_distance=%.2f m", c.path.bypass_y,
-                c.speed.cruise, c.stop_distance);
+    RCLCPP_INFO(get_logger(), "plan_node ready: bypass_y=%.2f cruise=%.2f m/s stop_distance=%.2f m traffic_gap=%s",
+                c.path.bypass_y, c.speed.cruise, c.stop_distance, c.use_traffic_gap ? "on" : "OFF (ablation)");
   }
 
  private:
@@ -110,21 +135,30 @@ class PlanNode : public rclcpp::Node {
       RCLCPP_INFO(get_logger(), "GO latched at t=%.2f x=%.2f", now, s ? s->ego.x : 0.0);
       logged_go_ = true;
     }
+    if (s && o.gap_ok != last_gap_ok_) {
+      RCLCPP_INFO(get_logger(), "traffic gap %s at t=%.2f x=%.2f: %s", o.gap_ok ? "SAFE" : "UNSAFE", now, s->ego.x,
+                  o.gap_reason.c_str());
+      last_gap_ok_ = o.gap_ok;
+    }
 
     // Decision state for observability and failure analysis (JSON in std_msgs/String).
     auto age = [now](double st) { return st >= 0 ? now - st : -1.0; };
-    char buf[1024];
+    auto cap = [](double v) { return std::isfinite(v) ? v : -1.0; };  // -1 = no cap
+    char buf[2048];
     std::snprintf(
         buf, sizeof(buf),
         "{\"t\":%.3f,\"state\":\"%s\",\"reason\":\"%s\",\"go\":%s,\"panel\":\"%s\",\"go_count\":%d,"
         "\"x\":%.3f,\"y\":%.3f,\"yaw\":%.4f,\"v\":%.3f,\"target_speed\":%.3f,\"steering\":%.4f,\"cte\":%.3f,"
-        "\"path_s\":%.2f,\"v_path\":%.3f,\"v_goal\":%.3f,\"v_stop\":%.3f,\"d_line\":%.3f,"
+        "\"path_s\":%.2f,\"v_path\":%.3f,\"v_goal\":%.3f,\"v_stop\":%.3f,\"v_yield\":%.3f,\"d_line\":%.3f,"
+        "\"gap_ok\":%s,\"radar_fresh\":%s,\"n_tracks\":%d,\"conflict_id\":%d,\"conflict_x\":%.2f,"
+        "\"conflict_vx\":%.2f,\"t_clear\":%.2f,\"radar_age\":%.3f,"
         "\"scene_age\":%.3f,\"odom_age\":%.3f}",
         now, rws::to_string(o.state), rws_ros::json_escape(o.reason).c_str(), o.go ? "true" : "false",
         s ? rws::to_string(s->panel_state) : "UNKNOWN", s ? s->panel_go_count : 0, s ? s->ego.x : 0.0,
         s ? s->ego.y : 0.0, s ? s->ego.yaw : 0.0, s ? s->ego.v : 0.0, o.speed, o.steering, o.cte, o.path_s, o.v_path,
-        o.v_goal, std::isfinite(o.v_stop) ? o.v_stop : -1.0, o.d_line, s ? age(s->stamp) : -1.0,
-        s ? age(s->ego.stamp) : -1.0);
+        o.v_goal, cap(o.v_stop), cap(o.v_yield), o.d_line, o.gap_ok ? "true" : "false",
+        o.radar_fresh ? "true" : "false", o.n_tracks, o.conflict_id, o.conflict_x, o.conflict_vx, o.t_clear,
+        s ? age(s->radar_stamp) : -1.0, s ? age(s->stamp) : -1.0, s ? age(s->ego.stamp) : -1.0);
     std_msgs::msg::String st;
     st.data = buf;
     state_pub_->publish(st);
@@ -158,7 +192,7 @@ class PlanNode : public rclcpp::Node {
   double scene_timeout_ = 0.25, last_scene_rx_ = -1.0;
   int published_path_version_ = 0;
   rws::State last_state_ = rws::State::Init;
-  bool logged_go_ = false;
+  bool logged_go_ = false, last_gap_ok_ = true;
   rclcpp::Subscription<SceneMsg>::SharedPtr scene_sub_;
   rclcpp::Publisher<PlanMsg>::SharedPtr plan_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr state_pub_;

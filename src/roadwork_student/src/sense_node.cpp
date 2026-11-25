@@ -1,6 +1,7 @@
-// sense_node: subscribes to odometry, the panel camera and the roadwork beacon,
-// validates and interprets them, and publishes the internal scene on
-// /solution/scene (20 Hz, on odometry).
+// sense_node: subscribes to odometry, the panel camera, the roadwork beacon and
+// the radar, validates and interprets them (panel state, cached geometry,
+// moving-object tracks) and publishes the internal scene on /solution/scene
+// (20 Hz, on odometry).
 #include <chrono>
 #include <map>
 #include <memory>
@@ -9,6 +10,7 @@
 
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "roadwork_interfaces/msg/radar_detections.hpp"
 #include "roadwork_interfaces/msg/roadwork_beacon.hpp"
 #include "roadwork_student/ros_helpers.hpp"
 #include "roadwork_student/sense_core.hpp"
@@ -28,6 +30,12 @@ class SenseNode : public rclcpp::Node {
     c.odom_timeout = declare_parameter("odom_timeout", c.odom_timeout);
     c.camera_timeout = declare_parameter("camera_timeout", c.camera_timeout);
     c.go_confirm = declare_parameter("go_confirm_frames", c.go_confirm);
+    c.max_assoc_dt = declare_parameter("max_assoc_dt", c.max_assoc_dt);
+    c.tracker.moving_threshold = declare_parameter("radar_moving_threshold", c.tracker.moving_threshold);
+    c.tracker.gate = declare_parameter("radar_gate", c.tracker.gate);
+    c.tracker.confirm_hits = declare_parameter("radar_confirm_hits", c.tracker.confirm_hits);
+    c.tracker.miss_limit = declare_parameter("radar_miss_limit", c.tracker.miss_limit);
+    c.tracker.max_coast = declare_parameter("radar_max_coast", c.tracker.max_coast);
     core_ = std::make_unique<rws::SenseCore>(c);
 
     const auto sensor_qos = rclcpp::SensorDataQoS();  // simulator sensors are best-effort
@@ -38,6 +46,9 @@ class SenseNode : public rclcpp::Node {
     beacon_sub_ = create_subscription<roadwork_interfaces::msg::RoadworkBeacon>(
         "/infra/roadwork/beacon", rclcpp::QoS(10).reliable(),
         [this](roadwork_interfaces::msg::RoadworkBeacon::ConstSharedPtr m) { on_beacon(*m); });
+    radar_sub_ = create_subscription<roadwork_interfaces::msg::RadarDetections>(
+        "/radar/detections", sensor_qos,
+        [this](roadwork_interfaces::msg::RadarDetections::ConstSharedPtr m) { on_radar(*m); });
 
     scene_pub_ = create_publisher<SceneMsg>("/solution/scene", rclcpp::QoS(1).reliable());
     // If odometry stops, keep publishing scenes (ego_valid=false) so Plan sees the cause.
@@ -107,6 +118,28 @@ class SenseNode : public rclcpp::Node {
                   b.g.entry_x, b.g.work_start, b.g.work_end, b.g.exit_x, b.g.speed_limit);
   }
 
+  void on_radar(const roadwork_interfaces::msg::RadarDetections& m) {
+    const double now = rws_ros::now_sec(*this);
+    if (m.header.frame_id != "base_link") return warn("radar", "frame_id is not base_link");
+    std::vector<rws::RadarDet> dets;
+    dets.reserve(m.detections.size());
+    for (const auto& d : m.detections) dets.push_back({d.range, d.azimuth, d.radial_velocity});
+    std::string why;
+    if (!core_->on_radar(to_sec(m.header.stamp), dets, now, &why)) return warn("radar", why);
+    // Log track births/deaths (confirmed tracks only) for failure analysis.
+    const auto& tracks = core_->scene(now).tracks;
+    std::map<int, bool> alive;
+    for (const auto& t : tracks) {
+      if (!t.confirmed) continue;
+      alive[t.id] = true;
+      if (!known_tracks_.count(t.id))
+        RCLCPP_INFO(get_logger(), "track %d confirmed at t=%.2f: x=%.1f y=%.1f vx=%.2f", t.id, now, t.x, t.y, t.vx);
+    }
+    for (const auto& [id, _] : known_tracks_)
+      if (!alive.count(id)) RCLCPP_INFO(get_logger(), "track %d dropped at t=%.2f", id, now);
+    known_tracks_ = alive;
+  }
+
   void publish_scene(double now) {
     const rws::SceneData s = core_->scene(now);
     SceneMsg m;
@@ -135,6 +168,25 @@ class SenseNode : public rclcpp::Node {
     m.speed_limit = s.geometry.speed_limit;
     m.pass_side = static_cast<int8_t>(s.geometry.pass_side);
     m.beacon_rejected = static_cast<uint32_t>(s.beacon_rejected);
+
+    m.radar_stamp = to_msg(s.radar_stamp);
+    m.radar_pose_dt = static_cast<float>(s.radar_pose_dt);
+    m.radar_detections = static_cast<uint32_t>(s.radar_detections);
+    m.radar_moving = static_cast<uint32_t>(s.radar_moving);
+    m.radar_rejected = static_cast<uint32_t>(s.radar_rejected);
+    m.tracks.reserve(s.tracks.size());
+    for (const auto& t : s.tracks) {
+      roadwork_student_interfaces::msg::Track tm;
+      tm.id = static_cast<uint32_t>(t.id);
+      tm.stamp = to_msg(t.stamp);
+      tm.x = t.x;
+      tm.y = t.y;
+      tm.vx = t.vx;
+      tm.hits = static_cast<uint32_t>(t.hits);
+      tm.confirmed = t.confirmed;
+      tm.coasting = t.coasting;
+      m.tracks.push_back(tm);
+    }
     scene_pub_->publish(m);
     last_scene_ = now;
   }
@@ -142,9 +194,11 @@ class SenseNode : public rclcpp::Node {
   std::unique_ptr<rws::SenseCore> core_;
   double last_scene_ = -1.0;
   rws::Panel last_panel_ = rws::Panel::Unknown;
+  std::map<int, bool> known_tracks_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr image_sub_;
   rclcpp::Subscription<roadwork_interfaces::msg::RoadworkBeacon>::SharedPtr beacon_sub_;
+  rclcpp::Subscription<roadwork_interfaces::msg::RadarDetections>::SharedPtr radar_sub_;
   rclcpp::Publisher<SceneMsg>::SharedPtr scene_pub_;
   rclcpp::TimerBase::SharedPtr watchdog_;
 };

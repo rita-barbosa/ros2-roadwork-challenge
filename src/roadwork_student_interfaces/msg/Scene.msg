@@ -36,3 +36,11 @@ float64 exit_x
 float64 speed_limit
 int8 pass_side
 uint32 beacon_rejected
+
+# ---- Radar (/radar/detections): moving-object tracks for the traffic gap check ----
+builtin_interfaces/Time radar_stamp   # acquisition stamp of the newest accepted radar scan (0 = none)
+float32 radar_pose_dt            # |radar stamp - stamp of the odometry sample used to transform it| (s)
+uint32 radar_detections          # valid detections in the newest scan
+uint32 radar_moving              # of which moving after ego-motion compensation
+uint32 radar_rejected            # cumulative rejected scans / malformed detections
+roadwork_student_interfaces/Track[] tracks
