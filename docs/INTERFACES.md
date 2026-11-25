@@ -55,35 +55,68 @@ First entry occurs when x+0.9>25. Crossing during STOP or the S4 visual/beacon b
 | --- | --- | --- | --- |
 | `/vehicle/odometry` | `nav_msgs/msg/Odometry` | sim → `sense` | SensorDataQoS |
 | `/camera/image_raw` | `sensor_msgs/msg/Image` | sim → `sense` | SensorDataQoS |
+| `/lidar/scan` | `sensor_msgs/msg/LaserScan` | sim → `sense` | SensorDataQoS |
+| `/radar/detections` | `roadwork_interfaces/msg/RadarDetections` | sim → `sense` | SensorDataQoS |
 | `/infra/roadwork/beacon` | `roadwork_interfaces/msg/RoadworkBeacon` | sim → `sense` | Reliable, depth 10 |
 | `/solution/scene` | `roadwork_student_interfaces/msg/Scene` | `sense` → `plan` | Reliable, volatile, depth 1 |
 | `/solution/plan` | `roadwork_student_interfaces/msg/Plan` | `plan` → `act` | Reliable, volatile, depth 1 |
 | `/vehicle/command` | `roadwork_interfaces/msg/VehicleCommand` | `act` → sim (sole publisher) | Reliable, depth 10 |
 | `/solution/state` | `std_msgs/msg/String` (JSON) | `plan` → debug/logs | Reliable, depth 10 |
 | `/solution/path` | `nav_msgs/msg/Path` (`map`) | `plan` → RViz | Reliable, transient local, depth 1 |
+| `/solution/perception` | `visualization_msgs/msg/MarkerArray` (`map`) | `sense` → RViz | Reliable, depth 5 |
 
-`/lidar/scan` and `/radar/detections` are not subscribed in D1. Debug and
-evaluator topics never feed the algorithm.
+All five observation topics and `/clock` are used. Debug and evaluator topics
+(`/world/markers`, `/challenge/metrics`, `/solution/perception`) never feed the
+algorithm.
 
 ## Internal interfaces (`roadwork_student_interfaces`)
 
-All times are simulation time. Depth 1 is used because only the newest scene and
-plan are meaningful.
+All times are simulation time; units SI; frame `map` unless stated. Depth 1 is
+used because only the newest scene and plan are meaningful. Unset stamps (never
+received) are encoded as time 0; validity flags or the receiver's own age checks
+carry the meaning.
 
 ### `Scene` — `/solution/scene`, 20 Hz (on odometry; 50 ms fallback timer)
 
-`header.stamp` = time Sense assembled the scene, `frame_id = map`. Every
-evidence block keeps its **original sensor stamp**, so Plan can judge source age.
+`header.stamp` = time Sense assembled the scene. Every evidence block keeps its
+**original sensor stamp**, so Plan can judge source age with its own clock.
+
+| Block | Fields | Meaning |
+| --- | --- | --- |
+| ego | `ego_valid`, `odom_stamp`, `ego_x/y/yaw/speed` | Ego state; `ego_valid` false if missing or older than `odom_timeout` (0.20 s) |
+| panel | `panel_raw`, `panel_state` | Newest accepted frame class / filtered state: STOP immediately, GO after 3 consecutive frames, UNKNOWN if ambiguous or older than `camera_timeout` (0.30 s). `PANEL_UNKNOWN=0, PANEL_GO=1, PANEL_STOP=2` |
+| | `camera_stamp`, `panel_green_fraction`, `panel_go_count`, `camera_rejected` | Panel diagnostics |
+| beacon | `geometry_known`, `beacon_stamp`, `beacon_valid_for` | Cached newest valid beacon and its announced validity; Plan decides freshness |
+| | `entry_x`, `work_start`, `work_end`, `exit_x`, `speed_limit`, `pass_side`, `beacon_rejected` | Cached work-zone geometry |
+| radar | `radar_stamp`, `radar_pose_dt` | Stamp of the newest accepted scan; gap to the odometry sample used to transform it |
+| | `radar_detections`, `radar_moving`, `radar_rejected` | Valid / moving (ego-compensated) detections in that scan; cumulative rejections |
+| | `tracks[]` (`Track`) | Moving-object tracks (below) |
+| LiDAR | `lidar_stamp`, `lidar_pose_dt` | Stamp of the newest accepted scan; association gap |
+| | `lidar_returns`, `lidar_rejected` | Finite returns in that scan; cumulative rejected scans + malformed rays |
+| | `obstacle_x[]`, `obstacle_y[]` (float32) | Map-frame returns of that scan with road-edge returns (\|y\| ≥ 3.25 m) removed — the evidence used by the corridor check |
+| | `obstacles[]` (`Obstacle`) | Clusters of the same returns (observability) |
+
+Plan rejects a scene older than `scene_timeout` (0.25 s), drops non-finite tracks
+and treats mismatched obstacle arrays as missing LiDAR evidence.
+
+### `Track` (inside `Scene`)
 
 | Field | Meaning |
 | --- | --- |
-| `ego_valid`, `odom_stamp`, `ego_x/y/yaw/speed` | Ego state; `ego_valid` false if missing or older than `odom_timeout` (0.20 s) |
-| `panel_raw` | Class of newest accepted frame: `PANEL_UNKNOWN=0`, `PANEL_GO=1`, `PANEL_STOP=2` |
-| `panel_state` | Filtered: STOP immediately; GO after 3 consecutive GO frames; UNKNOWN if ambiguous or older than `camera_timeout` (0.30 s) |
-| `camera_stamp`, `panel_green_fraction`, `panel_go_count`, `camera_rejected` | Panel diagnostics |
-| `geometry_known`, `beacon_stamp`, `entry_x`, `work_start`, `work_end`, `exit_x`, `speed_limit`, `pass_side`, `beacon_rejected` | Cached newest valid beacon geometry |
+| `id` | Track id (unique per episode) |
+| `stamp` | Time of the state below = last radar update (not predicted) |
+| `x`, `y`, `vx` | Position at `stamp`; along-road velocity (negative = oncoming) |
+| `hits` | Radar updates received |
+| `confirmed` | `hits ≥ radar_confirm_hits`; Plan ignores unconfirmed tracks |
+| `coasting` | Predicted outside the radar FOV/range and kept by constant-velocity prediction |
 
-Plan rejects a scene older than `scene_timeout` (0.25 s).
+Consumers predict `x(t) = x + vx·(t − stamp)`.
+
+### `Obstacle` (inside `Scene`)
+
+`x`, `y` (centroid of the member returns), `radius` (max distance of a member from
+the centroid), `range_min` (closest return to the sensor), `n_points`. The
+centroid of a partially seen object lies on its visible surface.
 
 ### `Plan` — `/solution/plan`, 20 Hz (per scene; 50 ms watchdog hold plan)
 
@@ -95,24 +128,41 @@ Plan rejects a scene older than `scene_timeout` (0.25 s).
 | `target_speed` (m/s, ≥0), `target_steering` (rad, + left) | Targets for Act |
 | `speed_limit` | Cap Act must apply in addition to its own (`min(4, beacon) − 0.3`) |
 | `hold` | true → Act commands speed 0 |
-| `state`, `state_name`, `reason` | `INIT=0, WAIT_GO=1, APPROACH=2, BYPASS=3, RETURN=4, FINAL=5, GOAL=6, SAFE_STOP=7` |
+| `state`, `state_name`, `reason` | `INIT=0, WAIT_GO=1, APPROACH=2, BYPASS=3, RETURN=4, FINAL=5, GOAL=6, SAFE_STOP=7, YIELD=8, WAIT_INFO=9, BLOCKED=10` |
 
 Act rejects a plan that is non-finite, future-stamped, past `valid_until` or older
-than `max_plan_age` (0.30 s), and then commands speed 0 with steering held.
-Unset stamps (never received) are encoded as time 0; validity flags carry meaning.
+than `max_plan_age` (0.30 s), and then commands speed 0 while holding steering.
 
-### `/solution/state` JSON
+### `/solution/state` JSON (20 Hz)
 
-Keys: `t, state, reason, go, panel, go_count, x, y, yaw, v, target_speed,
-steering, cte, path_s, v_path, v_goal, scene_age, odom_age`.
+| Keys | Meaning |
+| --- | --- |
+| `t, state, reason, go` | Plan time, state, reason text, entry latched |
+| `panel, go_count, camera_age` | Filtered panel, consecutive GO frames, camera age |
+| `beacon_fresh, beacon_age` | Beacon freshness used for permission |
+| `x, y, yaw, v, target_speed, steering` | Ego state and plan targets |
+| `cte, path_s, v_path, v_goal, v_stop, v_yield, v_obs, d_line` | Tracking error to the own path, arc length, speed caps (−1 = no cap), front-to-entry-line distance |
+| `gap_ok, radar_fresh, radar_age, n_tracks, conflict_id, conflict_x, conflict_vx, t_clear` | Traffic gap decision and the conflicting track |
+| `lidar_fresh, lidar_age, n_obstacle_points, blocked, block_x, block_y, block_dist` | Corridor decision and the first blocking return |
+| `scene_age, odom_age` | Input ages at plan time |
 
 ## Parameters (`roadwork_student/config/solution_params.yaml`)
 
-| Node | Parameter | Default |
-| --- | --- | --- |
-| `sense` | `odom_timeout` / `camera_timeout` / `go_confirm_frames` | 0.20 s / 0.30 s / 3 |
-| `plan` | `bypass_y` / `cruise_speed` / `max_lateral_accel` | 1.25 m / 3.5 m/s / 1.5 m/s² |
-| `plan` | `scene_timeout` / `plan_validity` | 0.25 s / 0.25 s |
-| `act` | `max_speed` / `max_plan_age` | 3.8 m/s / 0.30 s |
+| Node | Parameter | Default | Meaning |
+| --- | --- | --- | --- |
+| `sense` | `odom_timeout` / `camera_timeout` / `go_confirm_frames` | 0.20 s / 0.30 s / 3 | Ego validity, panel staleness, GO confirmation |
+| `sense` | `max_assoc_dt` | 0.15 s | Max gap between a sensor stamp and the odometry used to transform it |
+| `sense` | `radar_moving_threshold` / `radar_gate` | 0.6 m/s / 3.0 m | Moving-object threshold on the compensated radial velocity; association gate |
+| `sense` | `radar_confirm_hits` / `radar_miss_limit` / `radar_max_coast` | 2 / 3 / 20 s | Track confirmation, deletion inside the FOV, coasting lifetime |
+| `plan` | `bypass_y` / `cruise_speed` / `max_lateral_accel` | 1.25 m / 3.5 m/s / 1.5 m/s² | Path and speed profile |
+| `plan` | `scene_timeout` / `plan_validity` / `stop_distance` | 0.25 s / 0.25 s / 1.0 m | Input deadline, plan expiry, stop-line gap |
+| `plan` | `beacon_max_age` / `camera_timeout` | 1.2 s / 0.30 s | Beacon freshness cap; panel staleness (explanation only) |
+| `plan` | `use_traffic_gap` | true | Ablation switch (launch argument `use_traffic_gap:=false`) |
+| `plan` | `radar_timeout` / `gap_time` / `gap_margin` / `traffic_radius` | 0.35 s / 3.0 s / 1.0 m / 1.0 m | Gap check freshness, time margin, longitudinal margin, assumed vehicle radius |
+| `plan` | `gap_v_nominal` / `gap_a_nominal` | 3.0 m/s / 1.0 m/s² | Conservative ego motion for the clearing time |
+| `plan` | `use_obstacle_check` | true | Ablation switch (launch argument `use_obstacle_check:=false`) |
+| `plan` | `lidar_timeout` / `corridor_half_width` / `obstacle_horizon` | 0.35 s / 1.3 m / 40 m | Corridor check |
+| `plan` | `obstacle_standoff` / `obstacle_decel` / `obstacle_clear_time` | 2.5 m / 2.0 m/s² / 0.3 s | Stopping before a blocking return and release hysteresis |
+| `act` | `max_speed` / `max_plan_age` | 3.8 m/s / 0.30 s | Hard speed cap; plan age limit |
 
 All nodes force `use_sim_time=true` if it was not set.
