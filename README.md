@@ -136,7 +136,7 @@ $B/test_closed_loop 5 1 --trace=/tmp/s5.csv      # per-tick CSV trace (state, sp
 ```bash
 source /opt/ros/jazzy/setup.bash && source install/setup.bash
 export ROS_DOMAIN_ID=37
-bash scripts/run_d2.sh                      # all sets, ~50 min wall time (real-time simulator)
+bash scripts/run_d2.sh                      # all sets, ~55 min wall time (real-time simulator)
 bash scripts/run_d2.sh default ablation_no_gap   # or selected sets
 ```
 
@@ -148,6 +148,7 @@ bash scripts/run_d2.sh default ablation_no_gap   # or selected sets
 | `var_noise_005/` | S1–S5 × seeds 1–3 (15) | `noise:=0.05` |
 | `ablation_no_gap/` | S3 × seeds 1–3 | `use_traffic_gap:=false` |
 | `ablation_no_obstacle/` | S5 × seeds 1–3 | `use_obstacle_check:=false` |
+| `node_loss/{sense,plan,act}/` | S1 seed 1, node killed at t = 12 s, restarted 5 s later | `scripts/node_loss_test.py` |
 | `offline/` | unit tests, closed-loop suite, offline ablations | ROS-free |
 
 Each run folder `s<S>_seed<N>/` holds `result.json` (evaluator), `run.json`

@@ -135,6 +135,31 @@ def main():
         print("**S5 without the LiDAR corridor check:**\n")
         print(ablation(final, sets["ablation_no_obstacle"], 5, "no LiDAR corridor check") + "\n")
 
+    nl = root / "node_loss"
+    if nl.is_dir():
+        import json
+        print("## Node loss (stop and recovery)\n")
+        print("One pipeline node is killed with SIGKILL while the vehicle is in the bypass (S1 seed 1, t = 12 s, "
+              "3.5 m/s) and restarted with the same parameters 5 s later (`scripts/node_loss_test.py`).\n")
+        print("| node killed | x at kill [m] | stopped by | time to stop [s] | distance [m] | lateral drift [m] | "
+              "commands while down | motion after restart [s] | episode |")
+        print("|---|---:|---|---:|---:|---:|---:|---:|---|")
+        who = {"sense": "Plan scene deadline -> SAFE_STOP hold plans -> Act speed 0",
+               "plan": "Act plan expiry -> speed 0, steering held",
+               "act": "simulator command watchdog (no commands)"}
+        for n in ("sense", "plan", "act"):
+            f = nl / n / "node_loss.json"
+            if not f.exists():
+                continue
+            d = json.loads(f.read_text())
+            st, ev, rs = d.get("stop") or {}, d.get("evaluator") or {}, d.get("restart") or {}
+            ca = d.get("commands_after_kill") or {}
+            ep = ("PASS" if ev.get("pass") else "FAIL") + f" ({ev.get('time', '-')} s)"
+            print(f"| {n} | {d['kill']['x']:.2f} | {who[n]} | {st.get('time_to_stop', '-')} | {st.get('distance', '-')} | "
+                  f"{st.get('lateral_drift', '-')} | {ca.get('count', '-')} | "
+                  f"{rs.get('first_motion_after_restart', '-')} | {ep} |")
+        print()
+
     off = root / "offline"
     if off.is_dir():
         print("## Offline (ROS-free) evidence\n")

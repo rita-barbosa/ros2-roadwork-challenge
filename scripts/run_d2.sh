@@ -8,18 +8,20 @@
 #   results/d2/var_noise_005/         sensor-noise variation: noise=0.05, S1-S5 x seeds 1 2 3
 #   results/d2/ablation_no_gap/       ablation: radar gap check off (use_traffic_gap:=false), S3 x seeds 1 2 3
 #   results/d2/ablation_no_obstacle/  ablation: LiDAR corridor check off (use_obstacle_check:=false), S5 x seeds 1 2 3
+#   results/d2/node_loss/             sense/plan/act killed (SIGKILL) mid-crossing in S1 seed 1 at t=12 s,
+#                                     restarted 5 s later: stop and recovery (scripts/node_loss_test.py)
 #   results/d2/offline/               ROS-free evidence: unit tests, held-out panel confusion matrix,
 #                                     closed-loop suite (378 runs) and offline ablations
 #   results/d2/SUMMARY.md             combined report (scripts/d2_report.py)
 # Usage (workspace root, after `colcon build` and `source install/setup.bash`):
 #   bash scripts/run_d2.sh [SETS...]      # default: all sets; e.g. `bash scripts/run_d2.sh default ablation_no_gap`
-# Takes about 50 minutes of wall time (the simulator runs in real time). Use an isolated ROS_DOMAIN_ID.
+# Takes about 55 minutes of wall time (the simulator runs in real time). Use an isolated ROS_DOMAIN_ID.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 cd "$ROOT" || exit 1
 OUT="results/d2"   # relative, so summaries name repository paths
-ALL="offline default var_shift_m2 var_shift_p2 var_traffic_2 var_traffic_4 var_noise_005 ablation_no_gap ablation_no_obstacle"
+ALL="offline default var_shift_m2 var_shift_p2 var_traffic_2 var_traffic_4 var_noise_005 ablation_no_gap ablation_no_obstacle node_loss"
 SETS=${*:-$ALL}
 test "${ROS_DISTRO:-}" = jazzy || { echo 'Source /opt/ros/jazzy/setup.bash and install/setup.bash first'; exit 1; }
 mkdir -p "$OUT"
@@ -57,6 +59,8 @@ for set in $SETS; do
     var_noise_005)        run_set var_noise_005 "1 2 3 4 5" "1 2 3" "noise:=0.05" "noise variation" ;;
     ablation_no_gap)      run_set ablation_no_gap "3" "1 2 3" "use_traffic_gap:=false" "ablation: no radar gap check" ;;
     ablation_no_obstacle) run_set ablation_no_obstacle "5" "1 2 3" "use_obstacle_check:=false" "ablation: no LiDAR corridor check" ;;
+    node_loss)
+      for n in sense plan act; do python3 "$HERE/node_loss_test.py" "$OUT/node_loss/$n" "$n"; done ;;
     *) echo "unknown set $set (known: $ALL)"; exit 1 ;;
   esac
 done

@@ -198,8 +198,17 @@ re-confirmed 0.2 s after the camera returns; S5: the corridor is released 0.3 s
 after the obstacle disappears). Each episode is a fresh launch. If `/clock` jumps
 backwards (simulator restarted under running nodes), every node discards its
 episode state: filters, tracks, latched GO, frozen path, steering memory.
-Restarting only Plan mid-crossing loses the commitment, so reset the whole
-episode instead.
+
+**Loss of a pipeline node** (measured in `results/d2/node_loss/`): if `sense`
+dies, Plan misses its scene deadline and publishes SAFE_STOP hold plans; if
+`plan` dies, Act's plan expires and Act commands 0 with steering held; if `act`
+dies, no command arrives and the simulator watchdog brakes after 0.30 s. A
+restarted node starts with empty state. A restarted Plan has lost the
+commitment latch and the frozen path, so it re-derives permission from current
+evidence: past the commitment point with fresh GO, beacon, radar and LiDAR it
+re-latches at once and continues; with any of them missing it holds the vehicle
+where it is. A restarted Sense must re-confirm GO (3 frames), which only matters
+before commitment.
 
 ### Plan: path, speed and steering
 
