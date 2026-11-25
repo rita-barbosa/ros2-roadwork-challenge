@@ -7,6 +7,7 @@ from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
@@ -19,6 +20,9 @@ def generate_launch_description():
         "rviz": "true",
         "visualize": "true",
         "result_path": "roadwork_result.json",
+        # Ablation switches (plan_node); the defaults are the final method.
+        "use_traffic_gap": "true",
+        "use_obstacle_check": "true",
     }
     arguments = [DeclareLaunchArgument(name, default_value=value) for name, value in defaults.items()]
     sim_launch = os.path.join(get_package_share_directory("roadwork_sim"), "launch", "challenge.launch.py")
@@ -42,7 +46,18 @@ def generate_launch_description():
     )
     nodes = [
         Node(package="roadwork_student", executable="sense_node", output="screen", parameters=[params_file]),
-        Node(package="roadwork_student", executable="plan_node", output="screen", parameters=[params_file]),
+        Node(
+            package="roadwork_student",
+            executable="plan_node",
+            output="screen",
+            parameters=[
+                params_file,
+                {
+                    "use_traffic_gap": ParameterValue(LaunchConfiguration("use_traffic_gap"), value_type=bool),
+                    "use_obstacle_check": ParameterValue(LaunchConfiguration("use_obstacle_check"), value_type=bool),
+                },
+            ],
+        ),
         Node(package="roadwork_student", executable="act_node", output="screen", parameters=[params_file]),
         Node(
             package="rviz2",
