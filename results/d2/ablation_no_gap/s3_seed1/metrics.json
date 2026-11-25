@@ -1,0 +1,59 @@
+{
+ "scenario": 3,
+ "seed": 1,
+ "work_shift": 0.0,
+ "traffic_speed": 3.0,
+ "noise": 0.02,
+ "pass": false,
+ "transitions": [
+  [
+   0.55,
+   "SAFE_STOP"
+  ],
+  [
+   0.55,
+   "INIT"
+  ],
+  [
+   1.0,
+   "APPROACH"
+  ],
+  [
+   7.6,
+   "BYPASS"
+  ],
+  [
+   12.05,
+   "BLOCKED"
+  ]
+ ],
+ "time_in_state": {
+  "APPROACH": 6.6,
+  "BLOCKED": 1.0,
+  "BYPASS": 4.45,
+  "INIT": 0.45,
+  "SAFE_STOP": 0.0
+ },
+ "tracking": {
+  "mean_abs_cte": 0.0513,
+  "rms_cte": 0.0883,
+  "max_abs_cte": 0.232,
+  "samples": 240
+ },
+ "entry_time": 7.6,
+ "first_motion": 1.1,
+ "stops": [],
+ "unexplained_stops": 0,
+ "traffic_clearance_min": -0.164,
+ "yield_seconds": 0.0,
+ "gap_unsafe_from": null,
+ "gap_safe_at": null,
+ "command_rate_hz": 20.53,
+ "command_max_gap": 0.05,
+ "scene_age_max": 0.05,
+ "lidar_pose_dt_max": 0.05,
+ "radar_pose_dt_max": 0.05,
+ "lidar_rejected": 0,
+ "radar_rejected": 0,
+ "camera_rejected": 0
+}

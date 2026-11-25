@@ -1,0 +1,39 @@
+[INFO] [launch]: All log files can be found below /home/alf/.ros/log/2026-11-25-17-52-03-744113-alf-Ubuntu-24-04-PC-Q35-ICH9-2009-36743
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [simulator_node-1]: process started with pid [36750]
+[INFO] [sense_node-2]: process started with pid [36751]
+[INFO] [plan_node-3]: process started with pid [36752]
+[INFO] [act_node-4]: process started with pid [36753]
+[plan_node-3] [INFO] [1795629123.826138980] [plan]: plan_node ready: bypass_y=1.25 cruise=3.50 m/s stop_distance=1.00 m traffic_gap=on obstacle_check=OFF (ablation)
+[act_node-4] [INFO] [1795629123.829986165] [act]: act_node ready: speed cap 3.80 m/s, steering +/-0.45 rad, slew 0.60 rad/s
+[sense_node-2] [INFO] [1795629123.833509260] [sense]: sense_node ready: GO needs 3 consecutive frames
+[plan_node-3] [INFO] [1795629123.877161962] [plan]: state INIT -> SAFE_STOP at t=0.05 x=0.00: no scene received yet
+[plan_node-3] [INFO] [1795629123.877275981] [plan]: state SAFE_STOP -> INIT at t=0.05 x=5.00: waiting for beacon geometry
+[act_node-4] [INFO] [1795629124.254021210] [act]: plan valid at t=0.15: plan requests hold
+[sense_node-2] [INFO] [1795629124.377504798] [sense]: panel UNKNOWN -> GO at t=0.30 (green=1.00 go_count=3)
+[sense_node-2] [INFO] [1795629124.577394520] [sense]: beacon geometry cached: entry=25.00 work=[42.00, 49.00] exit=68.00 limit=4.00
+[plan_node-3] [INFO] [1795629124.577884709] [plan]: state INIT -> APPROACH at t=0.50 x=5.00: GO confirmed; approaching work zone
+[plan_node-3] [INFO] [1795629124.577903629] [plan]: beacon FRESH at t=0.50 (age 0.00 s)
+[plan_node-3] [INFO] [1795629124.578022199] [plan]: reference path v1: lane change x=[24.50, 40.00], return x=[52.00, 65.50], max steer 0.215 rad
+[plan_node-3] [INFO] [1795629130.477623860] [plan]: GO latched at t=6.40 x=21.65
+[plan_node-3] [INFO] [1795629131.177614001] [plan]: state APPROACH -> BYPASS at t=7.10 x=24.10: passing the works on the left
+[plan_node-3] [INFO] [1795629139.327212824] [plan]: state BYPASS -> RETURN at t=15.25 x=52.03: returning to own lane
+[simulator_node-1] [INFO] [1795629140.527083409] [roadwork_simulator]: Result saved to /tmp/claude-1000/-home-alf-ros2-roadwork-challenge/d2807a1c-abaf-42a6-ac8c-16f64357ea36/scratchpad/wt/results/d2/ablation_no_obstacle/s5_seed3/result.json: {"scenario":5,"seed":3,"work_shift":0,"traffic_speed":3,"noise":0.02,"time":16.45,"terminal":true,"pass":false,"finished":false,"collision":true,"offroad":false,"entry_violation":false,"lane_violation":false,"speed_violation":false,"timeout":false,"min_clearance":-0.0586718,"stopped_seconds":0.55,"max_speed":3.5,"rejected_commands":1}
+[sense_node-2] [WARN] [1795629140.577106704] [sense]: rejected odometry: repeated/out-of-order odometry
+[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+[simulator_node-1] [INFO] [1795629141.594477790] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[plan_node-3] [INFO] [1795629141.594477799] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[sense_node-2] [INFO] [1795629141.594996450] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[act_node-4] [INFO] [1795629141.595007100] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[INFO] [act_node-4]: sending signal 'SIGINT' to process[act_node-4]
+[INFO] [plan_node-3]: sending signal 'SIGINT' to process[plan_node-3]
+[INFO] [sense_node-2]: sending signal 'SIGINT' to process[sense_node-2]
+[INFO] [simulator_node-1]: sending signal 'SIGINT' to process[simulator_node-1]
+[act_node-4] [INFO] [1795629141.597885965] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[sense_node-2] [INFO] [1795629141.598336364] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[simulator_node-1] [INFO] [1795629141.598559474] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[plan_node-3] [INFO] [1795629141.598777304] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[INFO] [act_node-4]: process has finished cleanly [pid 36753]
+[INFO] [simulator_node-1]: process has finished cleanly [pid 36750]
+[INFO] [sense_node-2]: process has finished cleanly [pid 36751]
+[INFO] [plan_node-3]: process has finished cleanly [pid 36752]
