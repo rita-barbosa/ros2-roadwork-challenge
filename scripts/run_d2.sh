@@ -17,7 +17,8 @@
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
-OUT="$ROOT/results/d2"
+cd "$ROOT" || exit 1
+OUT="results/d2"   # relative, so summaries name repository paths
 ALL="offline default var_shift_m2 var_shift_p2 var_traffic_2 var_traffic_4 var_noise_005 ablation_no_gap ablation_no_obstacle"
 SETS=${*:-$ALL}
 test "${ROS_DISTRO:-}" = jazzy || { echo 'Source /opt/ros/jazzy/setup.bash and install/setup.bash first'; exit 1; }
@@ -32,7 +33,7 @@ for set in $SETS; do
   case "$set" in
     offline)
       mkdir -p "$OUT/offline"
-      B="$ROOT/build/roadwork_student"
+      B="build/roadwork_student"
       "$B/test_perception" > "$OUT/offline/test_perception.txt" 2>&1
       "$B/test_planning" > "$OUT/offline/test_planning.txt" 2>&1
       "$B/test_closed_loop" > "$OUT/offline/closed_loop_suite.txt" 2>&1

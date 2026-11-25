@@ -3,3 +3,4 @@ install/
 log/
 results/**/bag/
 *.exe
+__pycache__/
