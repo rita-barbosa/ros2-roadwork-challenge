@@ -1,0 +1,3 @@
+[INFO] [1795629622.041540974] [act]: act_node ready: speed cap 3.80 m/s, steering +/-0.45 rad, slew 0.60 rad/s
+[INFO] [1795629622.181332377] [act]: plan valid at t=17.30: tracking plan
+[INFO] [1795629635.982144051] [rclcpp]: signal_handler(SIGINT/SIGTERM)

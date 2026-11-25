@@ -1,0 +1,7 @@
+[INFO] [1795629556.681152828] [sense]: sense_node ready: GO needs 3 consecutive frames
+[WARN] [1795629558.213256973] [sense]: rejected radar: no odometry near the radar stamp
+[WARN] [1795629558.213331293] [sense]: rejected scan: no odometry near the scan stamp
+[INFO] [1795629558.413012532] [sense]: panel UNKNOWN -> GO at t=18.90 (green=1.00 go_count=3)
+[INFO] [1795629558.513076886] [sense]: beacon geometry cached: entry=25.00 work=[42.00, 49.00] exit=68.00 limit=4.00
+[WARN] [1795629571.712619309] [sense]: rejected odometry: repeated/out-of-order odometry
+[INFO] [1795629572.112869067] [rclcpp]: signal_handler(SIGINT/SIGTERM)

@@ -64,6 +64,16 @@ Same seeds and parameters; only the named check is disabled (launch argument). F
 | final method | 3 | 3/3 | 0 | 1.167 ± 0.000 | 32.27 ± 0.22 | 5.82 ± 0.22 |
 | no LiDAR corridor check | 3 | 0/3 | 3 | -0.059 ± 0.000 | 16.47 ± 0.02 | 0.57 ± 0.02 |
 
+## Node loss (stop and recovery)
+
+One pipeline node is killed with SIGKILL while the vehicle is in the bypass (S1 seed 1, t = 12 s, 3.5 m/s) and restarted with the same parameters 5 s later (`scripts/node_loss_test.py`).
+
+| node killed | x at kill [m] | stopped by | time to stop [s] | distance [m] | lateral drift [m] | commands while down | motion after restart [s] | episode |
+|---|---:|---|---:|---:|---:|---:|---:|---|
+| sense | 40.76 | Plan scene deadline -> SAFE_STOP hold plans -> Act speed 0 | 1.45 | 3.0 | 0.051 | 99 | 1.9 | PASS (32.15 s) |
+| plan | 40.93 | Act plan expiry -> speed 0, steering held | 1.45 | 3.0 | 0.044 | 51 | 0.4 | PASS (30.6 s) |
+| act | 40.76 | simulator command watchdog (no commands) | 1.45 | 3.0 | 0.051 | 1 | 0.4 | PASS (30.65 s) |
+
 ## Offline (ROS-free) evidence
 
 - Closed-loop regression suite: `closed-loop S1-S5 suite: 378/378 runs passed` (S1-S5 × seeds 1-3 × work_shift {0, ±2} × noise {0.02, 0, 0.05} × extra command delay {0, 0.1 s}; S3 also × traffic_speed {2, 3, 4}).

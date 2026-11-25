@@ -1,0 +1,42 @@
+[INFO] [launch]: All log files can be found below /home/alf/.ros/log/2026-11-25-17-59-32-888033-alf-Ubuntu-24-04-PC-Q35-ICH9-2009-38086
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [simulator_node-1]: process started with pid [38090]
+[INFO] [sense_node-2]: process started with pid [38091]
+[INFO] [plan_node-3]: process started with pid [38092]
+[INFO] [act_node-4]: process started with pid [38093]
+[act_node-4] [INFO] [1795629572.956631864] [act]: act_node ready: speed cap 3.80 m/s, steering +/-0.45 rad, slew 0.60 rad/s
+[plan_node-3] [INFO] [1795629572.959844059] [plan]: plan_node ready: bypass_y=1.25 cruise=3.50 m/s stop_distance=1.00 m traffic_gap=on obstacle_check=on
+[sense_node-2] [INFO] [1795629572.961688327] [sense]: sense_node ready: GO needs 3 consecutive frames
+[plan_node-3] [INFO] [1795629573.125845361] [plan]: state INIT -> SAFE_STOP at t=0.15 x=0.00: no scene received yet
+[act_node-4] [INFO] [1795629573.175946863] [act]: plan valid at t=0.20: plan requests hold
+[sense_node-2] [WARN] [1795629573.276464416] [sense]: rejected radar: no odometry near the radar stamp
+[sense_node-2] [WARN] [1795629573.276535036] [sense]: rejected scan: no odometry near the scan stamp
+[plan_node-3] [INFO] [1795629573.276932225] [plan]: state SAFE_STOP -> INIT at t=0.30 x=5.00: waiting for beacon geometry
+[sense_node-2] [INFO] [1795629573.476117555] [sense]: beacon geometry cached: entry=25.00 work=[42.00, 49.00] exit=68.00 limit=4.00
+[sense_node-2] [INFO] [1795629573.476324845] [sense]: panel UNKNOWN -> GO at t=0.50 (green=1.00 go_count=3)
+[plan_node-3] [INFO] [1795629573.476619614] [plan]: state INIT -> APPROACH at t=0.50 x=5.00: GO confirmed; approaching work zone
+[plan_node-3] [INFO] [1795629573.476639254] [plan]: beacon FRESH at t=0.50 (age 0.00 s)
+[plan_node-3] [INFO] [1795629573.476720264] [plan]: reference path v1: lane change x=[24.50, 40.00], return x=[52.00, 65.50], max steer 0.215 rad
+[plan_node-3] [INFO] [1795629579.376265759] [plan]: GO latched at t=6.40 x=21.65
+[plan_node-3] [INFO] [1795629580.076479659] [plan]: state APPROACH -> BYPASS at t=7.10 x=24.10: passing the works on the left
+[ERROR] [plan_node-3]: process has died [pid 38092, exit code -9, cmd '/home/alf/ros2-roadwork-challenge/install/roadwork_student/lib/roadwork_student/plan_node --ros-args --params-file /home/alf/ros2-roadwork-challenge/install/roadwork_student/share/roadwork_student/config/solution_params.yaml --params-file /tmp/launch_params__gdxsek0'].
+[act_node-4] [WARN] [1795629585.276011315] [act]: plan invalid at t=12.30: plan expired -> commanding speed 0
+[act_node-4] [INFO] [1795629590.276894370] [act]: plan valid at t=17.30: tracking plan
+[simulator_node-1] [INFO] [1795629603.576401591] [roadwork_simulator]: Result saved to /home/alf/ros2-roadwork-challenge/results/d2/node_loss/plan/result.json: {"scenario":1,"seed":1,"work_shift":0,"traffic_speed":3,"noise":0.02,"time":30.6,"terminal":true,"pass":true,"finished":true,"collision":false,"offroad":false,"entry_violation":false,"lane_violation":false,"speed_violation":false,"timeout":false,"min_clearance":1.12187,"stopped_seconds":4.5,"max_speed":3.5,"rejected_commands":6}
+[sense_node-2] [WARN] [1795629603.625721314] [sense]: rejected odometry: repeated/out-of-order odometry
+[sense_node-2] [WARN] [1795629603.625814114] [sense]: rejected radar: repeated/out-of-order radar scan
+[sense_node-2] [WARN] [1795629603.625830194] [sense]: rejected scan: repeated/out-of-order scan
+[sense_node-2] [WARN] [1795629603.626008773] [sense]: rejected image: repeated/out-of-order frame
+[WARNING] [launch]: user interrupted with ctrl-c (SIGINT)
+[sense_node-2] [INFO] [1795629604.025855882] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[act_node-4] [INFO] [1795629604.025920951] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[simulator_node-1] [INFO] [1795629604.026332020] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[INFO] [act_node-4]: sending signal 'SIGINT' to process[act_node-4]
+[INFO] [sense_node-2]: sending signal 'SIGINT' to process[sense_node-2]
+[INFO] [simulator_node-1]: sending signal 'SIGINT' to process[simulator_node-1]
+[act_node-4] [INFO] [1795629604.029156985] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[sense_node-2] [INFO] [1795629604.029980765] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[simulator_node-1] [INFO] [1795629604.030477564] [rclcpp]: signal_handler(SIGINT/SIGTERM)
+[INFO] [act_node-4]: process has finished cleanly [pid 38093]
+[INFO] [simulator_node-1]: process has finished cleanly [pid 38090]
+[INFO] [sense_node-2]: process has finished cleanly [pid 38091]

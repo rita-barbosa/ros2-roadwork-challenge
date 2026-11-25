@@ -1,0 +1,10 @@
+[INFO] [1795629590.144512435] [plan]: plan_node ready: bypass_y=1.25 cruise=3.50 m/s stop_distance=1.00 m traffic_gap=on obstacle_check=on
+[INFO] [1795629590.276373549] [plan]: state INIT -> SAFE_STOP at t=17.30 x=0.00: no scene received yet
+[INFO] [1795629590.276696579] [plan]: state SAFE_STOP -> BYPASS at t=17.30 x=43.94: passing the works on the left
+[INFO] [1795629590.276710889] [plan]: GO latched at t=17.30 x=43.94
+[INFO] [1795629590.276722879] [plan]: beacon FRESH at t=17.30 (age 0.30 s)
+[INFO] [1795629590.276809090] [plan]: reference path v1: lane change x=[24.50, 40.00], return x=[52.00, 65.50], max steer 0.215 rad
+[INFO] [1795629593.825870383] [plan]: state BYPASS -> RETURN at t=20.85 x=52.07: returning to own lane
+[INFO] [1795629598.625905539] [plan]: state RETURN -> FINAL at t=25.65 x=68.08: own lane, approaching goal
+[INFO] [1795629603.576443321] [plan]: state FINAL -> GOAL at t=30.60 x=80.16: goal reached
+[INFO] [1795629604.026563430] [rclcpp]: signal_handler(SIGINT/SIGTERM)

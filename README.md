@@ -33,7 +33,9 @@ traffic_speed 4 m/s, where the fast car is already inside the 40 m LiDAR range
 when the vehicle reaches the line, so the corridor check alone holds it; at 2–3 m/s
 the car is still out of LiDAR range at commitment. Tracking error to the planned
 path is 0.06–0.09 m mean and ≤ 0.30 m max (the maximum occurs in the lane
-changes).
+changes). Node loss: killing `sense`, `plan` or `act` mid-bypass at 3.5 m/s stops
+the vehicle within 1.45 s / 3.0 m (≤ 5 cm lateral drift); after the node is
+restarted the episode completes without violations.
 
 ## Requirements
 

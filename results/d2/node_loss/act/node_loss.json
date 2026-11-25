@@ -1,0 +1,63 @@
+{
+ "node": "act",
+ "scenario": 1,
+ "seed": 1,
+ "kill_at": 12.0,
+ "down": 5.0,
+ "software": "d1-submission-10-g2e169c0",
+ "ros_domain_id": "37",
+ "visualization": false,
+ "killed_pids": [
+  38238
+ ],
+ "kill": {
+  "t": 12.0,
+  "x": 40.76,
+  "y": 1.267,
+  "v": 3.5,
+  "state": "BYPASS"
+ },
+ "stop": {
+  "time_to_stop": 1.45,
+  "distance": 3.0,
+  "lateral_drift": 0.051,
+  "x": 43.76
+ },
+ "commands_after_kill": {
+  "count": 1,
+  "max_speed": 3.5,
+  "last_before_restart_s": 0.0
+ },
+ "states_after_kill": [
+  [
+   12.0,
+   "BYPASS",
+   "passing the works on the left"
+  ]
+ ],
+ "restart": {
+  "t": 17.0,
+  "first_motion_after_restart": 0.4
+ },
+ "evaluator": {
+  "scenario": 1,
+  "seed": 1,
+  "work_shift": 0,
+  "traffic_speed": 3,
+  "noise": 0.02,
+  "time": 30.65,
+  "terminal": true,
+  "pass": true,
+  "finished": true,
+  "collision": false,
+  "offroad": false,
+  "entry_violation": false,
+  "lane_violation": false,
+  "speed_violation": false,
+  "timeout": false,
+  "min_clearance": 1.12044,
+  "stopped_seconds": 4.55,
+  "max_speed": 3.5,
+  "rejected_commands": 101
+ }
+}
