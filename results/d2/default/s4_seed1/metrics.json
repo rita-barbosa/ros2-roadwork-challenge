@@ -1,0 +1,80 @@
+{
+ "scenario": 4,
+ "seed": 1,
+ "work_shift": 0.0,
+ "traffic_speed": 3.0,
+ "noise": 0.02,
+ "pass": true,
+ "transitions": [
+  [
+   0.55,
+   "SAFE_STOP"
+  ],
+  [
+   0.55,
+   "INIT"
+  ],
+  [
+   1.0,
+   "APPROACH"
+  ],
+  [
+   2.0,
+   "WAIT_GO"
+  ],
+  [
+   8.2,
+   "APPROACH"
+  ],
+  [
+   9.15,
+   "BYPASS"
+  ],
+  [
+   17.4,
+   "RETURN"
+  ],
+  [
+   22.2,
+   "FINAL"
+  ],
+  [
+   27.15,
+   "GOAL"
+  ]
+ ],
+ "time_in_state": {
+  "APPROACH": 1.95,
+  "BYPASS": 8.25,
+  "FINAL": 4.95,
+  "INIT": 0.45,
+  "RETURN": 4.8,
+  "SAFE_STOP": 0.0,
+  "WAIT_GO": 6.2
+ },
+ "tracking": {
+  "mean_abs_cte": 0.0824,
+  "rms_cte": 0.111,
+  "max_abs_cte": 0.294,
+  "samples": 410
+ },
+ "entry_time": 9.15,
+ "first_motion": 1.7,
+ "stops": [],
+ "unexplained_stops": 0,
+ "event_time": 8.0,
+ "go_latency": 0.2,
+ "resume_latency": 0.2,
+ "waiting_before_event": [
+  "WAIT_GO"
+ ],
+ "beacon_stale_detected": 2.7,
+ "command_rate_hz": 20.98,
+ "command_max_gap": 0.05,
+ "scene_age_max": 0.05,
+ "lidar_pose_dt_max": 0.05,
+ "radar_pose_dt_max": 0.05,
+ "lidar_rejected": 0,
+ "radar_rejected": 0,
+ "camera_rejected": 0
+}

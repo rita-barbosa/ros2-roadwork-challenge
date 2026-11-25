@@ -1,0 +1,5 @@
+panel confusion matrix (rows/cols = UNKNOWN, STOP, GO), N=400 per class
+  UNKNOWN   400    0    0
+  STOP        0  400    0
+  GO          0    0  400
+test_perception: 1444/1444 checks passed
